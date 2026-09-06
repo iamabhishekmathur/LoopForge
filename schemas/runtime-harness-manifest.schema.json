@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/runtime-harness-manifest.schema.json",
+  "title": "LoopForge Runtime Harness Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "trace_id",
+    "agent_id",
+    "agent_version",
+    "environment",
+    "model_provider",
+    "model_name",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "manifest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "environment": {
+      "type": "string"
+    },
+    "model_provider": {
+      "type": "string"
+    },
+    "model_name": {
+      "type": "string"
+    },
+    "model_config_hash": {
+      "type": "string"
+    },
+    "system_prompt_hash": {
+      "type": "string"
+    },
+    "developer_prompt_hash": {
+      "type": "string"
+    },
+    "skill_versions": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "tool_schema_hashes": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "tool_implementation_versions": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "tool_side_effect_classes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "read",
+          "draft",
+          "write",
+          "money_movement",
+          "external_message",
+          "destructive",
+          "unknown"
+        ]
+      }
+    },
+    "router_policy_hash": {
+      "type": "string"
+    },
+    "permission_policy_hash": {
+      "type": "string"
+    },
+    "context_policy_hash": {
+      "type": "string"
+    },
+    "retrieval_policy_hash": {
+      "type": "string"
+    },
+    "memory_policy_hash": {
+      "type": "string"
+    },
+    "feature_flags": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "experiment_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "tenant_policy_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "prompt_registry_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "version"],
+        "properties": {
+          "id": {"type": "string"},
+          "version": {"type": "string"},
+          "hash": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "eval_suite_versions": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

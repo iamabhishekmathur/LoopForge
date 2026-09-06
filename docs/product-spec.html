@@ -1,0 +1,2031 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoopForge Product Specification</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f3;
+      --panel: #ffffff;
+      --text: #19201f;
+      --muted: #61706d;
+      --line: #d9dfd9;
+      --accent: #176b5d;
+      --accent-2: #9a4d1f;
+      --code-bg: #eef2ee;
+      --shadow: 0 18px 60px rgba(21, 32, 30, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+      gap: 32px;
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    aside {
+      position: sticky;
+      top: 28px;
+      align-self: start;
+      max-height: calc(100vh - 56px);
+      overflow: auto;
+      padding: 22px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .brand {
+      margin: 0 0 4px;
+      font-size: 24px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0 0 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .toc {
+      display: grid;
+      gap: 4px;
+      font-size: 14px;
+    }
+
+    .toc a {
+      display: block;
+      padding: 5px 0;
+      color: #30413e;
+      text-decoration: none;
+    }
+
+    .toc a:hover {
+      color: var(--accent);
+    }
+
+    .toc-level-3 {
+      padding-left: 16px !important;
+      color: var(--muted) !important;
+      font-size: 13px;
+    }
+
+    main {
+      min-width: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 56px min(7vw, 92px);
+    }
+
+    article {
+      max-width: 920px;
+      margin: 0 auto;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+      line-height: 1.2;
+      letter-spacing: 0;
+      scroll-margin-top: 32px;
+    }
+
+    h1 {
+      margin: 0 0 20px;
+      font-size: 44px;
+    }
+
+    h2 {
+      margin: 56px 0 14px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+      font-size: 27px;
+    }
+
+    h3 {
+      margin: 32px 0 10px;
+      font-size: 20px;
+      color: #223432;
+    }
+
+    p {
+      margin: 0 0 16px;
+    }
+
+    ul, ol {
+      margin: 0 0 20px;
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: var(--code-bg);
+      color: #263533;
+      font: 0.92em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    pre {
+      overflow: auto;
+      margin: 18px 0 24px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      background: #101817;
+      color: #edf6f2;
+      line-height: 1.5;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      color: inherit;
+      font-size: 13px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin: 22px 0 28px;
+      border: 1px solid var(--line);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: #edf2ee;
+      color: #223432;
+      font-weight: 700;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 32px;
+    }
+
+    .meta span {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      background: #fbfcfa;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .shell {
+        display: block;
+        padding: 0;
+      }
+
+      aside {
+        position: static;
+        max-height: none;
+        border-width: 0 0 1px;
+        box-shadow: none;
+      }
+
+      .toc {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      main {
+        border: 0;
+        box-shadow: none;
+        padding: 34px 20px 56px;
+      }
+
+      h1 {
+        font-size: 34px;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      .shell {
+        display: block;
+        padding: 0;
+      }
+
+      aside {
+        display: none;
+      }
+
+      main {
+        border: 0;
+        box-shadow: none;
+        padding: 0;
+      }
+
+      a {
+        color: inherit;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <h1 class="brand">LoopForge</h1>
+      <p class="subtitle">Product specification reading view</p>
+      <nav class="toc" aria-label="Table of contents">
+        <a class="toc-level-1" href="#loopforge-product-specification">LoopForge Product Specification</a>
+<a class="toc-level-2" href="#1-executive-summary">1. Executive Summary</a>
+<a class="toc-level-2" href="#2-product-thesis">2. Product Thesis</a>
+<a class="toc-level-2" href="#3-public-market-context">3. Public Market Context</a>
+<a class="toc-level-2" href="#4-mission">4. Mission</a>
+<a class="toc-level-2" href="#5-product-goals">5. Product Goals</a>
+<a class="toc-level-3" href="#5-1-primary-goals">5.1 Primary Goals</a>
+<a class="toc-level-3" href="#5-2-non-goals">5.2 Non-Goals</a>
+<a class="toc-level-2" href="#6-target-users">6. Target Users</a>
+<a class="toc-level-3" href="#6-1-primary-persona-agent-product-engineer">6.1 Primary Persona: Agent Product Engineer</a>
+<a class="toc-level-3" href="#6-2-secondary-persona-ai-platform-engineer">6.2 Secondary Persona: AI Platform Engineer</a>
+<a class="toc-level-3" href="#6-3-secondary-persona-founder-or-cto-of-an-agent-startup">6.3 Secondary Persona: Founder or CTO of an Agent Startup</a>
+<a class="toc-level-3" href="#6-4-secondary-persona-security-or-compliance-reviewer">6.4 Secondary Persona: Security or Compliance Reviewer</a>
+<a class="toc-level-2" href="#7-jobs-to-be-done">7. Jobs To Be Done</a>
+<a class="toc-level-2" href="#8-product-principles">8. Product Principles</a>
+<a class="toc-level-3" href="#8-1-evidence-over-vibes">8.1 Evidence Over Vibes</a>
+<a class="toc-level-3" href="#8-2-automatic-monitoring-by-default">8.2 Automatic Monitoring By Default</a>
+<a class="toc-level-3" href="#8-3-ai-observed-and-ai-drafted-by-default">8.3 AI-Observed And AI-Drafted By Default</a>
+<a class="toc-level-3" href="#8-4-probabilistic-harness-intelligence">8.4 Probabilistic Harness Intelligence</a>
+<a class="toc-level-3" href="#8-5-codebase-grounded-diagnosis">8.5 Codebase-Grounded Diagnosis</a>
+<a class="toc-level-3" href="#8-6-runtime-truth-over-repository-guesses">8.6 Runtime Truth Over Repository Guesses</a>
+<a class="toc-level-3" href="#8-7-canonical-ontology-with-local-extensions">8.7 Canonical Ontology With Local Extensions</a>
+<a class="toc-level-3" href="#8-8-human-approved-release-boundary-by-default">8.8 Human-Approved Release Boundary By Default</a>
+<a class="toc-level-3" href="#8-9-patch-the-right-layer">8.9 Patch The Right Layer</a>
+<a class="toc-level-3" href="#8-10-eval-coverage-is-a-first-class-deliverable">8.10 Eval Coverage Is A First-Class Deliverable</a>
+<a class="toc-level-3" href="#8-11-local-first-trust">8.11 Local-First Trust</a>
+<a class="toc-level-3" href="#8-12-stack-neutral">8.12 Stack-Neutral</a>
+<a class="toc-level-3" href="#8-13-smallest-useful-change">8.13 Smallest Useful Change</a>
+<a class="toc-level-3" href="#8-14-no-harness-sediment">8.14 No Harness Sediment</a>
+<a class="toc-level-2" href="#9-product-surface">9. Product Surface</a>
+<a class="toc-level-3" href="#9-1-cli">9.1 CLI</a>
+<a class="toc-level-3" href="#9-2-monitoring-service">9.2 Monitoring Service</a>
+<a class="toc-level-3" href="#9-3-github-action">9.3 GitHub Action</a>
+<a class="toc-level-3" href="#9-4-pr-comment">9.4 PR Comment</a>
+<a class="toc-level-3" href="#9-5-local-web-ui">9.5 Local Web UI</a>
+<a class="toc-level-3" href="#9-6-library-api">9.6 Library API</a>
+<a class="toc-level-2" href="#10-canonical-workflow">10. Canonical Workflow</a>
+<a class="toc-level-3" href="#10-1-setup">10.1 Setup</a>
+<a class="toc-level-3" href="#10-2-continuous-monitoring-loop">10.2 Continuous Monitoring Loop</a>
+<a class="toc-level-3" href="#10-3-new-model-launch-loop">10.3 New Model Launch Loop</a>
+<a class="toc-level-3" href="#10-4-skill-improvement-loop">10.4 Skill Improvement Loop</a>
+<a class="toc-level-2" href="#11-harness-artifact-model">11. Harness Artifact Model</a>
+<a class="toc-level-3" href="#11-1-codebase-discovery-and-harness-index">11.1 Codebase Discovery And Harness Index</a>
+<a class="toc-level-3" href="#11-2-runtime-harness-manifest">11.2 Runtime Harness Manifest</a>
+<a class="toc-level-3" href="#11-3-recommended-layout">11.3 Recommended Layout</a>
+<a class="toc-level-3" href="#11-4-artifact-types">11.4 Artifact Types</a>
+<a class="toc-level-2" href="#12-failure-ontology">12. Failure Ontology</a>
+<a class="toc-level-2" href="#13-patch-planning">13. Patch Planning</a>
+<a class="toc-level-3" href="#13-1-layer-selection-heuristics">13.1 Layer Selection Heuristics</a>
+<a class="toc-level-2" href="#14-acceptance-gates">14. Acceptance Gates</a>
+<a class="toc-level-3" href="#14-1-required-gates">14.1 Required Gates</a>
+<a class="toc-level-3" href="#14-2-optional-gates">14.2 Optional Gates</a>
+<a class="toc-level-3" href="#14-3-gate-output">14.3 Gate Output</a>
+<a class="toc-level-3" href="#14-4-recommendation-quality-ladder">14.4 Recommendation Quality Ladder</a>
+<a class="toc-level-3" href="#14-5-side-effect-safe-replay">14.5 Side-Effect-Safe Replay</a>
+<a class="toc-level-3" href="#14-6-evaluator-validation">14.6 Evaluator Validation</a>
+<a class="toc-level-3" href="#14-7-probabilistic-discovery-contractual-checks">14.7 Probabilistic Discovery, Contractual Checks</a>
+<a class="toc-level-2" href="#15-trust-and-safety-model">15. Trust And Safety Model</a>
+<a class="toc-level-3" href="#15-1-no-silent-production-mutation">15.1 No Silent Production Mutation</a>
+<a class="toc-level-3" href="#15-2-privacy-defaults">15.2 Privacy Defaults</a>
+<a class="toc-level-3" href="#15-3-security-controls">15.3 Security Controls</a>
+<a class="toc-level-3" href="#15-4-prompt-injection-defense">15.4 Prompt Injection Defense</a>
+<a class="toc-level-3" href="#15-5-recommendation-trust-architecture">15.5 Recommendation Trust Architecture</a>
+<a class="toc-level-2" href="#16-product-ux-requirements">16. Product UX Requirements</a>
+<a class="toc-level-3" href="#16-1-first-30-minutes-trust-building-onboarding">16.1 First 30 Minutes: Trust-Building Onboarding</a>
+<a class="toc-level-3" href="#16-2-first-60-minutes-useful-integration">16.2 First 60 Minutes: Useful Integration</a>
+<a class="toc-level-3" href="#16-3-first-week">16.3 First Week</a>
+<a class="toc-level-3" href="#16-4-developer-ergonomics">16.4 Developer Ergonomics</a>
+<a class="toc-level-3" href="#16-5-autonomy-ramp">16.5 Autonomy Ramp</a>
+<a class="toc-level-2" href="#17-mvp-scope">17. MVP Scope</a>
+<a class="toc-level-3" href="#17-1-mvp-includes">17.1 MVP Includes</a>
+<a class="toc-level-3" href="#17-2-mvp-excludes">17.2 MVP Excludes</a>
+<a class="toc-level-2" href="#18-version-1-0-scope">18. Version 1.0 Scope</a>
+<a class="toc-level-2" href="#19-integration-strategy">19. Integration Strategy</a>
+<a class="toc-level-3" href="#19-1-trace-sources">19.1 Trace Sources</a>
+<a class="toc-level-3" href="#19-2-agent-frameworks">19.2 Agent Frameworks</a>
+<a class="toc-level-3" href="#19-3-ci">19.3 CI</a>
+<a class="toc-level-3" href="#19-4-evaluators">19.4 Evaluators</a>
+<a class="toc-level-2" href="#20-adoption-strategy">20. Adoption Strategy</a>
+<a class="toc-level-3" href="#20-1-positioning">20.1 Positioning</a>
+<a class="toc-level-3" href="#20-2-distribution">20.2 Distribution</a>
+<a class="toc-level-3" href="#20-3-trust-building-features">20.3 Trust-Building Features</a>
+<a class="toc-level-3" href="#20-4-recommended-enterprise-pilot">20.4 Recommended Enterprise Pilot</a>
+<a class="toc-level-3" href="#20-5-community-growth">20.5 Community Growth</a>
+<a class="toc-level-2" href="#21-success-metrics">21. Success Metrics</a>
+<a class="toc-level-3" href="#21-1-product-metrics">21.1 Product Metrics</a>
+<a class="toc-level-3" href="#21-2-adoption-metrics">21.2 Adoption Metrics</a>
+<a class="toc-level-3" href="#21-3-quality-metrics">21.3 Quality Metrics</a>
+<a class="toc-level-3" href="#21-4-trust-launch-thresholds">21.4 Trust Launch Thresholds</a>
+<a class="toc-level-2" href="#22-competitive-landscape">22. Competitive Landscape</a>
+<a class="toc-level-2" href="#23-roadmap">23. Roadmap</a>
+<a class="toc-level-3" href="#phase-0-spec-and-seed-repo">Phase 0: Spec And Seed Repo</a>
+<a class="toc-level-3" href="#phase-1-local-mvp">Phase 1: Local MVP</a>
+<a class="toc-level-3" href="#phase-2-pr-workflow">Phase 2: PR Workflow</a>
+<a class="toc-level-3" href="#phase-3-integrations">Phase 3: Integrations</a>
+<a class="toc-level-3" href="#phase-4-model-launch-simulator">Phase 4: Model Launch Simulator</a>
+<a class="toc-level-3" href="#phase-5-optimizer-backends">Phase 5: Optimizer Backends</a>
+<a class="toc-level-3" href="#phase-6-hosted-optional-layer">Phase 6: Hosted Optional Layer</a>
+<a class="toc-level-2" href="#24-risks-and-mitigations">24. Risks And Mitigations</a>
+<a class="toc-level-3" href="#24-1-trust-critical-risk-bad-recommendations">24.1 Trust-Critical Risk: Bad Recommendations</a>
+<a class="toc-level-3" href="#24-2-risk-table">24.2 Risk Table</a>
+<a class="toc-level-2" href="#25-product-decisions">25. Product Decisions</a>
+<a class="toc-level-2" href="#26-public-references">26. Public References</a>
+      </nav>
+    </aside>
+    <main>
+      <article>
+        <div class="meta">
+          <span>Draft 0.1</span>
+          <span>Generated from docs/product-spec.md</span>
+          <span>Local-first OSS harness loop</span>
+        </div>
+        <h1 id="loopforge-product-specification">LoopForge Product Specification</h1>
+<p>Status: Draft 0.1 Date: 2026-09-05 Repository codename: agent-harness-loop Working product name: LoopForge</p>
+<h2 id="1-executive-summary">1. Executive Summary</h2>
+<p>LoopForge is an open-source, continuously running improvement engine for AI agent harnesses.</p>
+<p>It helps teams move from manual agent debugging to a trusted closed-loop workflow that runs on a configurable schedule:</p>
+<pre><code class="language-text">monitor traces -&gt; discover harness -&gt; mine issues -&gt; diagnose -&gt; propose harness patch -&gt; generate eval -&gt; acceptance gate -&gt; PR -&gt; rollout -&gt; monitor</code></pre>
+<p>The target user is an engineer or small agent team building production AI agents. They may already use LangChain, LangGraph, OpenAI Agents SDK, Claude tools, Vercel AI SDK, Mastra, CrewAI, LlamaIndex, AutoGen, custom orchestration, Langfuse, Phoenix, LangSmith, Braintrust, Promptfoo, or plain logs.</p>
+<p>LoopForge should fit into those stacks with minimal friction. It should not ask teams to switch frameworks, manually import traces forever, adopt a hosted platform, or expose sensitive production traces to a vendor.</p>
+<p>The product should feel like a monitoring service plus an AI eval engineer plus a careful staff engineer. It watches the agent, understands the codebase, drafts the failure analysis, writes tests, proposes changes, gates them, and asks humans to approve release boundaries.</p>
+<h2 id="2-product-thesis">2. Product Thesis</h2>
+<p>Agent quality will be won by teams that close the loop between real usage and harness evolution.</p>
+<p>Foundation models improve, but agent reliability lives in the harness:</p>
+<ul>
+<li>System and developer prompts.</li>
+<li>Tool descriptions and schemas.</li>
+<li>Skill instructions.</li>
+<li>Routing policies.</li>
+<li>Context packing.</li>
+<li>Retrieval and memory policies.</li>
+<li>Permission boundaries.</li>
+<li>Confirmation flows.</li>
+<li>Evals, scorers, and acceptance gates.</li>
+<li>Rollout and rollback procedures.</li>
+</ul>
+<p>Most teams improve these artifacts manually. They read traces, patch prompts, update tool schemas, and maybe add a regression test. That process works when the team is tiny and traffic is low. It breaks once the agent sees many workflows, many users, many tools, and frequent model launches.</p>
+<p>LoopForge makes harness improvement a first-class engineering discipline by continuously watching production traces and continuously refreshing its understanding of the codebase and harness.</p>
+<h2 id="3-public-market-context">3. Public Market Context</h2>
+<p>Public tooling already covers important pieces:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Area</th>
+<th>Existing examples</th>
+<th>Gap LoopForge targets</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Tracing and observability</td>
+<td>Langfuse, Phoenix, LangSmith, AgentOps</td>
+<td>Trace data is visible but not always converted into durable harness changes.</td>
+</tr>
+<tr>
+<td>Offline evals</td>
+<td>Promptfoo, OpenAI Evals, Braintrust, LangSmith, Phoenix</td>
+<td>Evals exist but are often manually authored and disconnected from production failures.</td>
+</tr>
+<tr>
+<td>Prompt optimization</td>
+<td>DSPy, GEPA, OPRO, TextGrad, EvoPrompt</td>
+<td>Optimizers target prompts/programs but do not own the end-to-end product workflow of issue, eval, gate, PR, rollout.</td>
+</tr>
+<tr>
+<td>Closed-loop products</td>
+<td>LangSmith Engine</td>
+<td>Strong product signal, but not a neutral OSS harness standard.</td>
+</tr>
+<tr>
+<td>Frontier lab launch process</td>
+<td>OpenAI system cards and deployment simulation, Anthropic RSP/system cards, Google DeepMind Frontier Safety, Meta Llama model cards</td>
+<td>Labs have internal processes; most agent companies need a practical OSS version.</td>
+</tr>
+</tbody></table></div>
+<p>LoopForge should not try to replace this ecosystem. Its adoption path is integration-first.</p>
+<h2 id="4-mission">4. Mission</h2>
+<p>Make closed-loop agent improvement the default operating model for every agent company.</p>
+<h2 id="5-product-goals">5. Product Goals</h2>
+<h3 id="5-1-primary-goals">5.1 Primary Goals</h3>
+<ol>
+<li>Reduce time from production failure to reviewed fix.</li>
+<li>Increase regression eval coverage from real traces.</li>
+<li>Improve harness quality without requiring a framework migration.</li>
+<li>Make model launches safer by replaying representative traces through candidate model and harness combinations.</li>
+<li>Build trust by making every proposed change evidence-backed, gated, and reviewable.</li>
+<li>Automatically monitor trace sources on user-defined schedules.</li>
+<li>Build and maintain a semantic index of the codebase, harness artifacts, tools, Skills, prompts, routes, policies, and evals.</li>
+<li>Capture the runtime harness manifest for each agent run so recommendations are grounded in the harness that actually executed, not just the repository snapshot.</li>
+<li>Reduce first value to 30 minutes and reduce first useful integration to 1 hour through automatic connection, discovery, drafting, and setup PRs.</li>
+</ol>
+<h3 id="5-2-non-goals">5.2 Non-Goals</h3>
+<p>LoopForge should not:</p>
+<ul>
+<li>Become a general-purpose LLM observability dashboard.</li>
+<li>Replace existing trace platforms.</li>
+<li>Silently self-modify production prompts or policies.</li>
+<li>Require a hosted control plane.</li>
+<li>Require all traces to be sent to a third-party service.</li>
+<li>Require users to manually import traces after initial setup.</li>
+<li>Optimize for benchmark leaderboard performance over production reliability.</li>
+<li>Treat system prompts as the only harness layer.</li>
+<li>Hide the rationale for a proposed change.</li>
+</ul>
+<h2 id="6-target-users">6. Target Users</h2>
+<h3 id="6-1-primary-persona-agent-product-engineer">6.1 Primary Persona: Agent Product Engineer</h3>
+<p>Profile:</p>
+<ul>
+<li>Builds and maintains a production agent.</li>
+<li>Owns prompts, tools, evals, and agent orchestration.</li>
+<li>Has limited time to inspect traces manually.</li>
+<li>Wants pragmatic fixes and regression coverage.</li>
+</ul>
+<p>Pain:</p>
+<ul>
+<li>Users report failures that traces can explain only after manual digging.</li>
+<li>Prompt and tool changes are hard to validate.</li>
+<li>Model upgrades create surprising behavior changes.</li>
+<li>Evals lag behind actual production use.</li>
+<li>The codebase and harness drift away from whatever the observability tool thinks exists.</li>
+</ul>
+<p>Value:</p>
+<ul>
+<li>Gets a PR containing the harness patch, evidence, and evals.</li>
+<li>Can reject, edit, or merge with confidence.</li>
+<li>Does not need to babysit trace import jobs or manually map every harness file.</li>
+</ul>
+<h3 id="6-2-secondary-persona-ai-platform-engineer">6.2 Secondary Persona: AI Platform Engineer</h3>
+<p>Profile:</p>
+<ul>
+<li>Supports many internal agent teams.</li>
+<li>Owns shared eval, tracing, CI, and release infrastructure.</li>
+</ul>
+<p>Pain:</p>
+<ul>
+<li>Each team invents its own prompt and eval workflow.</li>
+<li>No common failure ontology across agents.</li>
+<li>Hard to tell which agents are actually improving.</li>
+</ul>
+<p>Value:</p>
+<ul>
+<li>Standardizes trace-to-eval-to-PR workflows.</li>
+<li>Enables org-wide quality dashboards without dictating the agent framework.</li>
+</ul>
+<h3 id="6-3-secondary-persona-founder-or-cto-of-an-agent-startup">6.3 Secondary Persona: Founder or CTO of an Agent Startup</h3>
+<p>Profile:</p>
+<ul>
+<li>Needs reliability quickly.</li>
+<li>Cannot build a full internal evals and harness team.</li>
+</ul>
+<p>Pain:</p>
+<ul>
+<li>Quality issues block enterprise adoption.</li>
+<li>Customers want evidence that the agent is improving.</li>
+</ul>
+<p>Value:</p>
+<ul>
+<li>Adds a credible closed-loop quality process.</li>
+<li>Produces auditable PRs and quality reports for customers.</li>
+</ul>
+<h3 id="6-4-secondary-persona-security-or-compliance-reviewer">6.4 Secondary Persona: Security or Compliance Reviewer</h3>
+<p>Profile:</p>
+<ul>
+<li>Reviews AI agent risk, tool access, data handling, and change control.</li>
+</ul>
+<p>Pain:</p>
+<ul>
+<li>Agent behavior changes without clear diffs.</li>
+<li>Production traces may contain sensitive data.</li>
+<li>Tool permissions and prompts are not governed.</li>
+</ul>
+<p>Value:</p>
+<ul>
+<li>Sees proposed changes as PRs.</li>
+<li>Sees policy gates, redaction, and rollout metadata.</li>
+</ul>
+<h2 id="7-jobs-to-be-done">7. Jobs To Be Done</h2>
+<ol>
+<li>When a production agent fails repeatedly, identify the pattern and propose a fix.</li>
+<li>When a user gives negative feedback, convert the trace into an eval and a possible patch.</li>
+<li>When a new model launches, replay realistic traces and identify harness changes needed before rollout.</li>
+<li>When a tool is misused, improve the tool description, schema, validation, or routing policy.</li>
+<li>When a Skill is missing or misfiring, create or update the Skill and add trigger evals.</li>
+<li>When a prompt change is proposed, prove it does not regress core workflows.</li>
+<li>When a safety issue appears, add targeted evals and controls without over-refusing benign requests.</li>
+<li>When context packing loses important information, update context policy and add trace-level tests.</li>
+</ol>
+<h2 id="8-product-principles">8. Product Principles</h2>
+<h3 id="8-1-evidence-over-vibes">8.1 Evidence Over Vibes</h3>
+<p>Every issue should link to traces, spans, examples, and eval results.</p>
+<h3 id="8-2-automatic-monitoring-by-default">8.2 Automatic Monitoring By Default</h3>
+<p>After setup, LoopForge should run as a scheduled monitor. Users configure cadence, trace sources, privacy policy, and PR behavior; they should not manually import traces as a regular workflow.</p>
+<h3 id="8-3-ai-observed-and-ai-drafted-by-default">8.3 AI-Observed And AI-Drafted By Default</h3>
+<p>LoopForge should observe traces, discover artifacts, draft issue clusters, draft failure labels, draft evals, draft patches, and draft PRs automatically. The product should not rely on the user to perform manual trace review, manual ontology construction, manual eval authoring, or manual harness mapping as the default workflow.</p>
+<p>Human input is still valuable, but it should enter as approval, correction, or policy configuration. Corrections should update the repo-local learning loop so the system drafts better recommendations next time.</p>
+<h3 id="8-4-probabilistic-harness-intelligence">8.4 Probabilistic Harness Intelligence</h3>
+<p>Issue discovery, artifact classification, root-cause analysis, and patch planning should be semantic and probabilistic. The system should use model-based judgment, embeddings, uncertainty estimates, and competing hypotheses rather than brittle filename assumptions or hand-written pattern rules.</p>
+<p>Objective product contracts should still be checked contractually. The intelligence layer should be probabilistic; the release boundary should be strict.</p>
+<h3 id="8-5-codebase-grounded-diagnosis">8.5 Codebase-Grounded Diagnosis</h3>
+<p>LoopForge must understand the codebase before diagnosing failures. It should build an index of prompts, Skills, tool definitions, routes, policies, agent graphs, evals, and the code that assembles them so recommendations are grounded in what the system actually runs.</p>
+<h3 id="8-6-runtime-truth-over-repository-guesses">8.6 Runtime Truth Over Repository Guesses</h3>
+<p>Codebase discovery is necessary but insufficient. Production agents often assemble behavior from feature flags, tenant policies, prompt registries, model routers, A/B tests, retrieved context, and runtime configuration. LoopForge should prefer a runtime harness manifest emitted with every trace over static repository inference whenever both are available.</p>
+<h3 id="8-7-canonical-ontology-with-local-extensions">8.7 Canonical Ontology With Local Extensions</h3>
+<p>LoopForge should ship with a canonical failure ontology, not a disposable starter list. Teams can extend it, but local extensions should map back to canonical outcome, mechanism, and governance layers so reports, evals, integrations, and community packs remain comparable.</p>
+<h3 id="8-8-human-approved-release-boundary-by-default">8.8 Human-Approved Release Boundary By Default</h3>
+<p>The default output is an AI-drafted PR, not a production mutation. Humans approve release boundaries; they should not be required to author the issue, eval, or patch from scratch.</p>
+<h3 id="8-9-patch-the-right-layer">8.9 Patch The Right Layer</h3>
+<p>The system must decide whether the fix belongs in:</p>
+<ul>
+<li>System prompt.</li>
+<li>Developer prompt.</li>
+<li>Skill trigger or body.</li>
+<li>Tool schema.</li>
+<li>Tool description.</li>
+<li>Router policy.</li>
+<li>Permission policy.</li>
+<li>Context packing.</li>
+<li>Memory/retrieval interface.</li>
+<li>Evaluator.</li>
+<li>Product UI or confirmation flow.</li>
+<li>Application code.</li>
+</ul>
+<h3 id="8-10-eval-coverage-is-a-first-class-deliverable">8.10 Eval Coverage Is A First-Class Deliverable</h3>
+<p>A fix without a regression eval is incomplete.</p>
+<h3 id="8-11-local-first-trust">8.11 Local-First Trust</h3>
+<p>Teams should be able to run LoopForge entirely inside their environment.</p>
+<h3 id="8-12-stack-neutral">8.12 Stack-Neutral</h3>
+<p>LoopForge should interoperate through open schemas:</p>
+<ul>
+<li>OpenTelemetry.</li>
+<li>OpenInference.</li>
+<li>JSONL traces.</li>
+<li>Git patches.</li>
+<li>YAML config.</li>
+<li>Standard CI outputs.</li>
+</ul>
+<h3 id="8-13-smallest-useful-change">8.13 Smallest Useful Change</h3>
+<p>Candidate patches should be focused, explainable, and reversible.</p>
+<h3 id="8-14-no-harness-sediment">8.14 No Harness Sediment</h3>
+<p>Do not solve every issue by appending more prompt text. Prefer targeted artifacts and evals.</p>
+<h2 id="9-product-surface">9. Product Surface</h2>
+<h3 id="9-1-cli">9.1 CLI</h3>
+<p>The CLI is the primary developer experience.</p>
+<p>Example:</p>
+<pre><code class="language-bash">loopforge init
+loopforge connect
+loopforge discover
+loopforge shadow --last 24h
+loopforge pr --eval-only
+loopforge monitor start
+loopforge issues list
+loopforge propose ISSUE-2026-00017
+loopforge gate PATCH-2026-00017-a
+loopforge pr PATCH-2026-00017-a</code></pre>
+<h3 id="9-2-monitoring-service">9.2 Monitoring Service</h3>
+<p>The monitoring service is the default product loop after setup.</p>
+<p>It should:</p>
+<ul>
+<li>Poll or subscribe to configured trace sources.</li>
+<li>Rebuild the harness and codebase index on a schedule or after Git changes.</li>
+<li>Mine issues on a configurable cadence.</li>
+<li>Generate candidate issues and patches when confidence clears thresholds.</li>
+<li>Run gates automatically.</li>
+<li>Open PRs automatically only when configured and gates pass.</li>
+<li>Notify maintainers through GitHub, Slack, email, or webhooks.</li>
+</ul>
+<p>Example:</p>
+<pre><code class="language-yaml">monitor:
+  enabled: true
+  schedule: &quot;every 6 hours&quot;
+  trace_window: &quot;24 hours&quot;
+  min_issue_confidence: 0.78
+  min_patch_confidence: 0.82
+  open_prs: true
+  max_prs_per_day: 3</code></pre>
+<h3 id="9-3-github-action">9.3 GitHub Action</h3>
+<p>Runs gates on pull requests:</p>
+<pre><code class="language-yaml">name: LoopForge
+on: [pull_request]
+jobs:
+  loopforge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: loopforge/loopforge-action@v1
+        with:
+          suite: core
+          candidate-models: gpt-5.5,claude-sonnet-5,gemini-3.7-flash</code></pre>
+<h3 id="9-4-pr-comment">9.4 PR Comment</h3>
+<p>Each PR should include:</p>
+<ul>
+<li>Issue summary.</li>
+<li>Evidence traces.</li>
+<li>Root-cause hypothesis.</li>
+<li>Modified harness artifacts.</li>
+<li>New eval cases.</li>
+<li>Gate results.</li>
+<li>Rollback plan.</li>
+<li>Residual risk.</li>
+</ul>
+<h3 id="9-5-local-web-ui">9.5 Local Web UI</h3>
+<p>Optional. Not required for MVP.</p>
+<p>The UI should show:</p>
+<ul>
+<li>Issues grouped by failure mode.</li>
+<li>Trace evidence.</li>
+<li>Candidate patches.</li>
+<li>Eval results.</li>
+<li>Gate decisions.</li>
+<li>Harness artifact history.</li>
+<li>Codebase and harness index.</li>
+<li>Monitor status and schedule.</li>
+</ul>
+<h3 id="9-6-library-api">9.6 Library API</h3>
+<p>For teams that want to embed the workflow:</p>
+<pre><code class="language-python">from loopforge import LoopForge
+
+lf = LoopForge.load(&quot;.&quot;)
+lf.discover()
+lf.monitor_once()
+issues = lf.mine()
+patch = lf.propose(issues[0].id)
+report = lf.gate(patch.id)</code></pre>
+<h2 id="10-canonical-workflow">10. Canonical Workflow</h2>
+<h3 id="10-1-setup">10.1 Setup</h3>
+<ol>
+<li>Install CLI.</li>
+<li>Run <code>loopforge init</code>.</li>
+<li>Run <code>loopforge connect</code> to auto-detect trace sources, test credentials, infer project and environment, and set the monitoring cadence.</li>
+<li>Run <code>loopforge discover</code> to build an AI-drafted codebase and harness index.</li>
+<li>Run <code>loopforge shadow --last 24h</code> to generate AI-drafted issues, eval candidates, and behavior-patch previews.</li>
+<li>Preview or correct the artifact map only when confidence is too low for the desired autonomy level.</li>
+<li>Accept generated setup PRs for runtime manifests, trace enrichment, replay, monitor config, and CI gates.</li>
+<li>Start the monitor.</li>
+</ol>
+<p>The first evidence-backed value should arrive in 30 minutes or less for an existing agent repo. The first useful integration PRs should be generated in 60 minutes or less.</p>
+<h3 id="10-2-continuous-monitoring-loop">10.2 Continuous Monitoring Loop</h3>
+<ol>
+<li>Wake on configured schedule, webhook, or manual <code>monitor once</code>.</li>
+<li>Pull new traces from configured sources.</li>
+<li>Normalize into LoopForge trace schema.</li>
+<li>Apply privacy policy and build LLM-safe evidence bundles.</li>
+<li>Refresh the codebase and harness index if the repo changed.</li>
+<li>Mine recurring or severe failures using probabilistic classifiers and semantic clustering.</li>
+<li>Rank issues by impact, confidence, trace observability, and eval coverage gap.</li>
+<li>Produce issue objects.</li>
+<li>Generate candidate patches and regression evals when confidence clears configured thresholds.</li>
+<li>Run acceptance gates in an isolated workspace.</li>
+<li>Open PRs or write patch reports according to policy.</li>
+<li>Monitor post-merge traces for fix confirmation or regression.</li>
+</ol>
+<h3 id="10-3-new-model-launch-loop">10.3 New Model Launch Loop</h3>
+<ol>
+<li>Define candidate model.</li>
+<li>Replay representative traces.</li>
+<li>Compare old model plus old harness against candidate model plus old harness.</li>
+<li>Detect changed behavior.</li>
+<li>Generate required harness patches.</li>
+<li>Run broad regression suites.</li>
+<li>Produce model launch report.</li>
+<li>Support staged rollout and rollback.</li>
+</ol>
+<h3 id="10-4-skill-improvement-loop">10.4 Skill Improvement Loop</h3>
+<ol>
+<li>Detect tasks where a Skill should have triggered but did not.</li>
+<li>Detect tasks where a Skill triggered unnecessarily.</li>
+<li>Detect cases where Skill instructions caused poor tool use, excessive refusal, or unfinished work.</li>
+<li>Patch trigger conditions, anti-trigger conditions, workflow steps, or verification requirements.</li>
+<li>Generate Skill trigger evals and task completion evals.</li>
+</ol>
+<h2 id="11-harness-artifact-model">11. Harness Artifact Model</h2>
+<p>LoopForge should support a recommended layout while adapting to existing repos. It must not assume teams already know where every harness artifact lives.</p>
+<h3 id="11-1-codebase-discovery-and-harness-index">11.1 Codebase Discovery And Harness Index</h3>
+<p>During setup and on a recurring schedule, LoopForge should inspect the full codebase to discover the harness artifacts and code paths that shape agent behavior.</p>
+<p>Discovery targets:</p>
+<ul>
+<li>System prompts.</li>
+<li>Developer prompts.</li>
+<li>Skill files and Skill-like procedural instructions.</li>
+<li>Tool definitions, tool descriptions, and tool schemas.</li>
+<li>Router policies and model-selection logic.</li>
+<li>Permission and confirmation policies.</li>
+<li>Context packing, summarization, retrieval, and memory interface code.</li>
+<li>Eval suites, datasets, scorers, and launch checks.</li>
+<li>Agent graphs, workflow definitions, and orchestration code.</li>
+<li>Prompt registry usage and remote prompt references.</li>
+<li>Framework-specific configuration for LangChain, LangGraph, OpenAI Agents SDK, Vercel AI SDK, LlamaIndex, CrewAI, AutoGen, Mastra, Pydantic AI, and custom agents.</li>
+</ul>
+<p>Discovery should be semantic and probabilistic:</p>
+<ul>
+<li>Use repository parsing, embeddings, model-based artifact classification, import graph context, and developer-provided hints.</li>
+<li>Maintain confidence scores for every discovered artifact and relationship.</li>
+<li>Let users approve or correct the artifact map when needed, but do not require manual mapping for first value.</li>
+<li>Re-index after Git changes, dependency changes, or scheduled monitor runs.</li>
+<li>Avoid brittle assumptions based only on filenames, comments, or isolated string patterns.</li>
+</ul>
+<p>The index should represent a graph:</p>
+<pre><code class="language-text">agent -&gt; router -&gt; Skill -&gt; tool -&gt; permission policy -&gt; eval coverage
+agent -&gt; context policy -&gt; retrieval/memory interface
+issue -&gt; evidence traces -&gt; suspected artifacts -&gt; candidate patch -&gt; evals</code></pre>
+<p>This index is required for grounded recommendations. If LoopForge cannot identify the relevant harness artifacts with enough confidence, it should downgrade the recommendation, request review, or propose an observability/indexing improvement before proposing a behavioral patch.</p>
+<h3 id="11-2-runtime-harness-manifest">11.2 Runtime Harness Manifest</h3>
+<p>Every production trace should ideally include a runtime harness manifest. This manifest is the most trusted description of what actually executed for that run.</p>
+<p>Required manifest fields:</p>
+<ul>
+<li>Agent version and deployment environment.</li>
+<li>Model provider, model name, and model configuration.</li>
+<li>System prompt hash and source reference.</li>
+<li>Developer prompt hash and source reference.</li>
+<li>Active Skill IDs and versions.</li>
+<li>Tool names, schema hashes, and implementation versions.</li>
+<li>Router policy hash.</li>
+<li>Permission and confirmation policy hashes.</li>
+<li>Context packing, retrieval, and memory-interface policy hashes.</li>
+<li>Prompt registry references and remote prompt versions.</li>
+<li>Feature flags and experiment IDs.</li>
+<li>Tenant or customer policy IDs when applicable.</li>
+<li>Eval suite and scorer versions used for online scoring.</li>
+</ul>
+<p>The manifest should not store full sensitive prompt or policy content inside traces by default. It should store stable hashes, source references, and version IDs that LoopForge can map back to the codebase or prompt registry under the team&#x27;s access controls.</p>
+<p>When codebase discovery and the runtime manifest disagree, LoopForge should prefer the runtime manifest for diagnosis and flag a <code>HARNESS_INDEX_GAP</code>.</p>
+<h3 id="11-3-recommended-layout">11.3 Recommended Layout</h3>
+<p>Recommended layout:</p>
+<pre><code class="language-text">loopforge.yaml
+.loopforge/
+  index/
+  manifests/
+  issues/
+  patches/
+  reports/
+harness/
+  system.md
+  developer.md
+  policies/
+    safety.md
+    privacy.md
+  skills/
+    code-review.md
+    browser.md
+    spreadsheet.md
+  tools/
+    billing.yaml
+    search.yaml
+    ticketing.yaml
+  routing.yaml
+  permissions.yaml
+  context.yaml
+  memory-policy.yaml
+evals/
+  suites/
+    core.yaml
+    safety.yaml
+    model-launch.yaml
+  datasets/
+    production-regressions.jsonl
+    skill-routing.jsonl
+  scorers/
+    task_success.py
+    tool_sequence.py</code></pre>
+<h3 id="11-4-artifact-types">11.4 Artifact Types</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Type</th>
+<th>Purpose</th>
+<th>Example patch</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>System prompt</td>
+<td>Global role, chain of command, boundaries</td>
+<td>Clarify how tool outputs should be treated as untrusted.</td>
+</tr>
+<tr>
+<td>Developer prompt</td>
+<td>Product-specific operating instructions</td>
+<td>Require persistent task completion in a support agent.</td>
+</tr>
+<tr>
+<td>Skill</td>
+<td>Task-specific workflow</td>
+<td>Add an anti-trigger for code review when user only asks for explanation.</td>
+</tr>
+<tr>
+<td>Tool description</td>
+<td>Tool use semantics</td>
+<td>Clarify that <code>refund_customer</code> actually issues money movement.</td>
+</tr>
+<tr>
+<td>Tool schema</td>
+<td>Arguments and validation</td>
+<td>Make <code>customer_id</code> required and reject email as a substitute.</td>
+</tr>
+<tr>
+<td>Router policy</td>
+<td>Model/tool/agent selection</td>
+<td>Route billing disputes to billing specialist first.</td>
+</tr>
+<tr>
+<td>Permission policy</td>
+<td>Allow/deny/confirm actions</td>
+<td>Require human confirmation for external email sends.</td>
+</tr>
+<tr>
+<td>Context policy</td>
+<td>Summarization and packing</td>
+<td>Preserve latest user constraint over older summary.</td>
+</tr>
+<tr>
+<td>Memory policy</td>
+<td>Retrieval and write rules</td>
+<td>Expose memory interface boundaries without owning memory internals.</td>
+</tr>
+<tr>
+<td>Eval suite</td>
+<td>Regression and safety gates</td>
+<td>Add a trace replay test for the failed workflow.</td>
+</tr>
+</tbody></table></div>
+<h2 id="12-failure-ontology">12. Failure Ontology</h2>
+<p>LoopForge needs a canonical failure ontology so teams can compare failure modes across agents. The ontology must be practical, not ornamental: each category should be diagnosable from traces, codebase context, or paired replay. If a category cannot usually be inferred with useful confidence, it should become an observability gap rather than a confident failure label.</p>
+<p>This ontology is part of the product surface. It should be versioned, extensible, and stable enough for CI gates, dashboards, PR labels, integrations, and community eval packs. Local teams can add product-specific failure modes, but those modes should map to canonical IDs and layers.</p>
+<p>Trace observability levels:</p>
+<ul>
+<li>Strong: usually visible from trace spans, inputs, outputs, tool calls, and user feedback.</li>
+<li>Medium: visible only when traces include richer context such as router decisions, retrieved documents, Skill spans, or approval spans.</li>
+<li>Weak: requires external ground truth, human labels, product state, or richer instrumentation.</li>
+<li>Paired replay: requires comparing baseline and candidate runs.</li>
+</ul>
+<p>Failure layers:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Layer</th>
+<th>Meaning</th>
+<th>Typical output</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Outcome</td>
+<td>User-visible bad result or product quality failure.</td>
+<td>Issue, eval case, severity ranking.</td>
+</tr>
+<tr>
+<td>Mechanism</td>
+<td>The likely internal reason the outcome occurred.</td>
+<td>Harness patch, code patch, or instrumentation patch.</td>
+</tr>
+<tr>
+<td>Governance</td>
+<td>Missing control, missing eval, missing trace data, unsafe permissioning, or weak review process.</td>
+<td>Gate, eval, policy, manifest, or observability improvement.</td>
+</tr>
+</tbody></table></div>
+<p>LoopForge should avoid patching directly from outcome labels. For example, <code>TASK_COMPLETION_FAILURE</code> says the result was bad; it does not explain whether the right fix is a Skill update, tool schema change, routing change, or context policy change.</p>
+<p>Runtime failure ontology:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>ID</th>
+<th>Layer</th>
+<th>Category</th>
+<th>Description</th>
+<th>Trace observability</th>
+<th>Critical notes</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>USER_INTENT_MISMATCH</td>
+<td>Outcome</td>
+<td>Intent understanding</td>
+<td>Agent pursued a materially different user goal than the one requested.</td>
+<td>Medium</td>
+<td>Often overlaps with ambiguity handling and task completion. Use only when the intended goal is clear from the conversation or user feedback.</td>
+</tr>
+<tr>
+<td>AMBIGUITY_HANDLING_FAILURE</td>
+<td>Mechanism</td>
+<td>Interaction policy</td>
+<td>Agent failed to ask a needed clarifying question, or asked unnecessary clarification when it had enough context.</td>
+<td>Medium</td>
+<td>Important for agents because many bad side effects begin as ambiguity failures. Needs conversation context and ideally user feedback.</td>
+</tr>
+<tr>
+<td>PLAN_DECOMPOSITION_ERROR</td>
+<td>Mechanism</td>
+<td>Planning</td>
+<td>Agent chose a poor sequence of steps even though the goal and available tools were appropriate.</td>
+<td>Medium</td>
+<td>Hard to infer from final output alone. Needs step traces or chain-of-action traces.</td>
+</tr>
+<tr>
+<td>AGENT_OR_MODEL_ROUTING_ERROR</td>
+<td>Mechanism</td>
+<td>Routing</td>
+<td>Request was routed to the wrong agent, model, sub-agent, or mode.</td>
+<td>Medium</td>
+<td>Strong only if routing spans are present. Otherwise this is usually an index or observability gap.</td>
+</tr>
+<tr>
+<td>SKILL_ROUTING_ERROR</td>
+<td>Mechanism</td>
+<td>Skill routing</td>
+<td>Required Skill did not trigger, or an irrelevant Skill triggered.</td>
+<td>Medium</td>
+<td>Combines prior miss and false-positive categories. Direction should be captured as metadata: <code>miss</code>, <code>false_positive</code>, or <code>wrong_skill</code>.</td>
+</tr>
+<tr>
+<td>SKILL_PROCEDURE_DEFECT</td>
+<td>Mechanism</td>
+<td>Skill quality</td>
+<td>Correct Skill triggered, but its workflow was incomplete, unsafe, or misaligned.</td>
+<td>Medium</td>
+<td>Often overlaps with planning and task completion. Use when evidence points to the Skill text or Skill workflow.</td>
+</tr>
+<tr>
+<td>TOOL_SELECTION_ERROR</td>
+<td>Mechanism</td>
+<td>Tool use</td>
+<td>Agent selected a tool that was inappropriate for the user goal or current state.</td>
+<td>Strong when tool spans exist</td>
+<td>One of the most useful categories. Requires knowing available tools and their intended semantics from the codebase index.</td>
+</tr>
+<tr>
+<td>TOOL_ARGUMENT_SEMANTIC_ERROR</td>
+<td>Mechanism</td>
+<td>Tool use</td>
+<td>Agent selected the right tool but supplied arguments that were semantically wrong, unsafe, incomplete, or stale.</td>
+<td>Strong when arguments are traced</td>
+<td>Better than generic &quot;argument error&quot; because the issue is often semantic, not just schema validity.</td>
+</tr>
+<tr>
+<td>TOOL_RESULT_INTERPRETATION_ERROR</td>
+<td>Mechanism</td>
+<td>Tool use</td>
+<td>Agent misread, ignored, overtrusted, or incorrectly summarized a tool result.</td>
+<td>Medium</td>
+<td>Requires tool output and final/action comparison. Very important for grounded agents.</td>
+</tr>
+<tr>
+<td>ACTION_AUTHORIZATION_ERROR</td>
+<td>Governance</td>
+<td>Permissions</td>
+<td>Agent took or attempted an action without appropriate user, human, policy, or system authorization.</td>
+<td>Medium</td>
+<td>Merges permission bypass and confirmation miss. Direction can be <code>missing_confirmation</code>, <code>forbidden_action</code>, or <code>over_blocked_action</code>.</td>
+</tr>
+<tr>
+<td>STATE_OR_SIDE_EFFECT_ERROR</td>
+<td>Outcome</td>
+<td>State management</td>
+<td>Agent caused, failed to prevent, or failed to verify an external state change.</td>
+<td>Weak to Medium</td>
+<td>Critical for real agents. Needs product state, audit logs, or tool side-effect metadata.</td>
+</tr>
+<tr>
+<td>CONTEXT_ASSEMBLY_FAILURE</td>
+<td>Mechanism</td>
+<td>Context</td>
+<td>Required context was omitted, stale, overwritten, truncated, or ranked below less relevant context.</td>
+<td>Medium</td>
+<td>Needs context/retrieval spans. Otherwise often indistinguishable from model reasoning failure.</td>
+</tr>
+<tr>
+<td>MEMORY_INTERFACE_FAILURE</td>
+<td>Mechanism</td>
+<td>Memory interface</td>
+<td>Retrieved memory was irrelevant, stale, missing, or a proposed memory write was low quality.</td>
+<td>Medium</td>
+<td>Keep as one category because memory internals may be out of scope. Direction should be <code>retrieval</code>, <code>write</code>, or <code>staleness</code>.</td>
+</tr>
+<tr>
+<td>GROUNDING_OR_SOURCE_FAILURE</td>
+<td>Outcome</td>
+<td>Factuality</td>
+<td>Agent made unsupported claims, failed to cite available sources, or contradicted provided evidence.</td>
+<td>Weak to Medium</td>
+<td>&quot;Hallucination&quot; is too broad. This category needs source context, retrieval spans, or human labels.</td>
+</tr>
+<tr>
+<td>RESPONSE_CONTRACT_FAILURE</td>
+<td>Outcome</td>
+<td>Output contract</td>
+<td>Agent returned a response that violated the expected structure, schema, tone boundary, or channel contract.</td>
+<td>Strong</td>
+<td>Includes prior format-contract failures. Tone-only cases are weaker unless user or product labels exist.</td>
+</tr>
+<tr>
+<td>TASK_COMPLETION_FAILURE</td>
+<td>Outcome</td>
+<td>Task completion</td>
+<td>Agent stopped early, skipped required work, or delivered an unusable final result.</td>
+<td>Medium</td>
+<td>Useful as an outcome label, but should not be the root cause when a more specific category is known.</td>
+</tr>
+<tr>
+<td>RECOVERY_FAILURE</td>
+<td>Mechanism</td>
+<td>Resilience</td>
+<td>Agent failed to recover from a tool error, missing context, rejected action, or invalid intermediate result.</td>
+<td>Strong when error spans exist</td>
+<td>Important for production reliability.</td>
+</tr>
+<tr>
+<td>SAFETY_POLICY_ERROR</td>
+<td>Governance</td>
+<td>Safety</td>
+<td>Agent over-refused benign requests or under-refused disallowed/risky requests.</td>
+<td>Medium</td>
+<td>Combines over-refusal and under-refusal. Direction must be metadata: <code>over_refusal</code> or <code>under_refusal</code>. Needs policy context.</td>
+</tr>
+<tr>
+<td>COST_LATENCY_QUALITY_REGRESSION</td>
+<td>Outcome</td>
+<td>Operations</td>
+<td>Agent behavior became materially slower, more expensive, or more resource-intensive for similar work.</td>
+<td>Strong</td>
+<td>Mostly metric-derived. It is a quality regression, not necessarily a user-visible failure.</td>
+</tr>
+<tr>
+<td>MODEL_BEHAVIOR_REGRESSION</td>
+<td>Outcome</td>
+<td>Model launch</td>
+<td>New model changed task success, tool use, safety, formatting, or cost under the same harness.</td>
+<td>Paired replay</td>
+<td>Not diagnosable from a single trace. Requires baseline and candidate runs.</td>
+</tr>
+<tr>
+<td>OBSERVABILITY_GAP</td>
+<td>Governance</td>
+<td>Instrumentation</td>
+<td>Trace data is insufficient to confidently diagnose the issue.</td>
+<td>Strong</td>
+<td>This should be a first-class finding. Sometimes the correct patch is better instrumentation, not prompt or Skill changes.</td>
+</tr>
+</tbody></table></div>
+<p>Quality-system findings:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>ID</th>
+<th>Description</th>
+<th>Why separate from runtime failures</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>EVAL_COVERAGE_GAP</td>
+<td>Known or suspected issue is not covered by existing evals.</td>
+<td>This is a testing gap discovered from failures, not itself a user-facing agent failure.</td>
+</tr>
+<tr>
+<td>HARNESS_INDEX_GAP</td>
+<td>LoopForge cannot confidently map behavior to prompts, Skills, tools, routes, policies, or code.</td>
+<td>This blocks grounded diagnosis and should trigger discovery/index improvements.</td>
+</tr>
+<tr>
+<td>JUDGE_UNCERTAINTY_GAP</td>
+<td>LLM judges disagree, lack calibration, or cannot score the issue reliably.</td>
+<td>This is an evaluation reliability problem, not necessarily an agent behavior problem.</td>
+</tr>
+</tbody></table></div>
+<p>Retired or merged categories:</p>
+<ul>
+<li><code>SKILL_TRIGGER_MISS</code> and <code>SKILL_TRIGGER_FALSE_POSITIVE</code> merge into <code>SKILL_ROUTING_ERROR</code>.</li>
+<li><code>PERMISSION_BYPASS</code> and <code>CONFIRMATION_MISS</code> merge into <code>ACTION_AUTHORIZATION_ERROR</code>.</li>
+<li><code>POLICY_OVER_REFUSAL</code> and <code>POLICY_UNDER_REFUSAL</code> merge into <code>SAFETY_POLICY_ERROR</code>.</li>
+<li><code>FORMAT_CONTRACT_BREAK</code> becomes <code>RESPONSE_CONTRACT_FAILURE</code>.</li>
+<li><code>HALLUCINATION</code> becomes <code>GROUNDING_OR_SOURCE_FAILURE</code>.</li>
+<li><code>EVAL_GAP</code> becomes <code>EVAL_COVERAGE_GAP</code> and moves out of runtime failures.</li>
+</ul>
+<p>Each issue can have multiple labels, but one primary root-cause label. If the trace evidence does not support a specific label, LoopForge should prefer <code>OBSERVABILITY_GAP</code>, lower confidence, or request richer instrumentation rather than pretending to know.</p>
+<h2 id="13-patch-planning">13. Patch Planning</h2>
+<p>LoopForge should produce candidate patches with explicit layer selection.</p>
+<p>Patch candidates should include:</p>
+<ul>
+<li>Target artifact.</li>
+<li>Rationale.</li>
+<li>Trace evidence.</li>
+<li>Expected behavior change.</li>
+<li>Risk assessment.</li>
+<li>New evals.</li>
+<li>Gate plan.</li>
+<li>Rollback plan.</li>
+</ul>
+<h3 id="13-1-layer-selection-heuristics">13.1 Layer Selection Heuristics</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Symptom</th>
+<th>Preferred patch layer</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Same tool chosen incorrectly across many tasks</td>
+<td>Tool description or router policy.</td>
+</tr>
+<tr>
+<td>Tool arguments invalid despite correct tool</td>
+<td>Tool schema, validators, examples.</td>
+</tr>
+<tr>
+<td>Task type not recognized</td>
+<td>Skill trigger or router policy.</td>
+</tr>
+<tr>
+<td>Model ignores known rule</td>
+<td>Prompt hierarchy or eval gate.</td>
+</tr>
+<tr>
+<td>Safety refusal too broad</td>
+<td>Safety policy examples and targeted evals.</td>
+</tr>
+<tr>
+<td>Context missing in final answer</td>
+<td>Context packing policy.</td>
+</tr>
+<tr>
+<td>New model more verbose or less persistent</td>
+<td>Developer prompt and model-specific evals.</td>
+</tr>
+<tr>
+<td>Output schema invalid</td>
+<td>Output contract, parser, schema gate, and eval coverage.</td>
+</tr>
+<tr>
+<td>One-off app bug</td>
+<td>Application code, not harness prompt.</td>
+</tr>
+</tbody></table></div>
+<h2 id="14-acceptance-gates">14. Acceptance Gates</h2>
+<p>Every proposed patch must pass gates before PR merge recommendation.</p>
+<p>Gates should be stricter than the recommendation engine. The recommendation engine may be probabilistic; acceptance must require calibrated confidence, grounded evidence, and explicit review.</p>
+<h3 id="14-1-required-gates">14.1 Required Gates</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Gate</th>
+<th>Description</th>
+<th>Default severity</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Schema gate</td>
+<td>Valid config, trace, eval, and artifact schemas.</td>
+<td>Blocking</td>
+</tr>
+<tr>
+<td>Patch scope gate</td>
+<td>Patch only touches declared artifacts.</td>
+<td>Blocking</td>
+</tr>
+<tr>
+<td>Grounding gate</td>
+<td>Patch cites codebase artifacts, trace evidence, and eval cases that support the change.</td>
+<td>Blocking</td>
+</tr>
+<tr>
+<td>Runtime manifest gate</td>
+<td>Trace evidence maps to the actual harness version, prompt hashes, tool schema hashes, and policy hashes used at runtime.</td>
+<td>Blocking for behavior patches</td>
+</tr>
+<tr>
+<td>Recommendation quality gate</td>
+<td>Candidate patch clears confidence, minimality, and risk thresholds before it can become a PR.</td>
+<td>Blocking</td>
+</tr>
+<tr>
+<td>Replay gate</td>
+<td>Failed traces now pass or improve.</td>
+<td>Blocking for targeted issue</td>
+</tr>
+<tr>
+<td>Regression gate</td>
+<td>Existing core eval suite does not degrade beyond threshold.</td>
+<td>Blocking</td>
+</tr>
+<tr>
+<td>Safety gate</td>
+<td>Safety evals do not regress.</td>
+<td>Blocking</td>
+</tr>
+<tr>
+<td>Format gate</td>
+<td>Required structured outputs remain parseable.</td>
+<td>Blocking</td>
+</tr>
+<tr>
+<td>Cost/latency gate</td>
+<td>Cost and latency stay within configured budget.</td>
+<td>Warning or blocking</td>
+</tr>
+<tr>
+<td>Evaluator validation gate</td>
+<td>LLM-judge and scorer outputs meet validation-record requirements.</td>
+<td>Blocking when evaluator used for blocking decisions</td>
+</tr>
+<tr>
+<td>Human approval gate</td>
+<td>Maintainer review required before merge.</td>
+<td>Blocking</td>
+</tr>
+</tbody></table></div>
+<h3 id="14-2-optional-gates">14.2 Optional Gates</h3>
+<ul>
+<li>Canary gate.</li>
+<li>A/B preference gate.</li>
+<li>Domain expert review.</li>
+<li>Security review.</li>
+<li>Privacy redaction review.</li>
+<li>Customer-specific contract gate.</li>
+<li>Accessibility or localization gate.</li>
+</ul>
+<h3 id="14-3-gate-output">14.3 Gate Output</h3>
+<p>Gate reports should be machine-readable and human-readable:</p>
+<pre><code class="language-text">Gate result: rejected
+Reason: regression on core/support/refund_policy x 3 cases
+Target issue improvement: 5/5 traces fixed
+Safety: pass
+Cost: +3.1 percent
+Recommendation: revise tool description patch; do not merge</code></pre>
+<h3 id="14-4-recommendation-quality-ladder">14.4 Recommendation Quality Ladder</h3>
+<p>LoopForge should expose the quality level of every recommendation:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Level</th>
+<th>Meaning</th>
+<th>Allowed action</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Observation</td>
+<td>Something notable happened, but root cause is unclear.</td>
+<td>Create issue only.</td>
+</tr>
+<tr>
+<td>Hypothesis</td>
+<td>Evidence suggests a likely root cause.</td>
+<td>Create issue and request review.</td>
+</tr>
+<tr>
+<td>Patch candidate</td>
+<td>Proposed patch is grounded but not yet gated.</td>
+<td>Write patch file; do not open PR.</td>
+</tr>
+<tr>
+<td>Gated patch</td>
+<td>Patch passed target, regression, safety, and grounding gates.</td>
+<td>Open PR if policy allows.</td>
+</tr>
+<tr>
+<td>Trusted pattern</td>
+<td>Similar patch type has repeatedly passed and been accepted in this repo.</td>
+<td>Open PR with lower review friction, never auto-merge by default.</td>
+</tr>
+</tbody></table></div>
+<p>Bad recommendations are the fastest way to lose trust. The default system should optimize for high precision over high recall: it is better to miss a marginal patch opportunity than to spam maintainers with confident nonsense.</p>
+<h3 id="14-5-side-effect-safe-replay">14.5 Side-Effect-Safe Replay</h3>
+<p>Trace replay must never accidentally repeat production side effects.</p>
+<p>Replay should support:</p>
+<ul>
+<li>Recorded tool-output replay.</li>
+<li>Mocked external APIs.</li>
+<li>Frozen time and fixed environment metadata.</li>
+<li>Frozen retrieval snapshots.</li>
+<li>Blocked write tools by default.</li>
+<li>Synthetic approval responses.</li>
+<li>Explicit replay-mode markers in traces and tool spans.</li>
+<li>Tool side-effect classifications such as <code>read</code>, <code>draft</code>, <code>write</code>, <code>money_movement</code>, <code>external_message</code>, and <code>destructive</code>.</li>
+<li>Tenant-safe fixtures for customer-specific policies.</li>
+</ul>
+<p>Any eval that would call a side-effecting tool must run against a mock, recorded output, sandbox account, or explicit dry-run implementation. If LoopForge cannot prove replay is side-effect-safe, the replay gate must fail closed.</p>
+<h3 id="14-6-evaluator-validation">14.6 Evaluator Validation</h3>
+<p>LoopForge should draft evaluators automatically, but every evaluator needs a validation record before it can influence blocking gates.</p>
+<p>Requirements:</p>
+<ul>
+<li>One evaluator per failure mode or product contract.</li>
+<li>Binary pass/fail outputs where possible, with optional explanation fields.</li>
+<li>Clear positive and negative examples.</li>
+<li>Separate train, development, and test slices for judge prompt iteration.</li>
+<li>True positive rate and true negative rate reporting.</li>
+<li>Precision, recall, and confidence interval reporting when enough labels exist.</li>
+<li>Frozen judge prompt and frozen model configuration for each evaluator version.</li>
+<li>Read-test-once discipline for held-out test sets.</li>
+<li>Bootstrap confidence intervals for prevalence estimates.</li>
+<li><code>pass^k</code> reliability measurement for repeated-run reliability.</li>
+<li><code>pass@k</code> capability measurement only when multiple attempts are an intended product behavior.</li>
+<li>Reset-and-replay measurement to estimate repeated-run failure rates.</li>
+</ul>
+<p>Evaluator validation should be AI-drafted and AI-maintained. Human labels or corrections are useful but not mandatory for first value. When human labels exist, they should calibrate the evaluator. When they do not exist, LoopForge should downgrade confidence and avoid using that evaluator as a blocking gate until enough evidence accumulates.</p>
+<h3 id="14-7-probabilistic-discovery-contractual-checks">14.7 Probabilistic Discovery, Contractual Checks</h3>
+<p>LoopForge should not rely on brittle heuristics for discovery, diagnosis, or patch planning. Those stages should be probabilistic and semantic.</p>
+<p>When objective behavior is knowable, LoopForge should use contractual checks:</p>
+<ul>
+<li>Schema validity.</li>
+<li>Required or forbidden side-effect classes.</li>
+<li>Permission and confirmation contracts.</li>
+<li>Output format contracts.</li>
+<li>Tool availability and tool argument contracts.</li>
+<li>Replay sandbox contracts.</li>
+<li>Cost and latency budgets.</li>
+</ul>
+<p>Contractual checks are not the intelligence layer; they are release controls. They should be generated, selected, and maintained by the AI loop, then enforced consistently in CI and replay.</p>
+<h2 id="15-trust-and-safety-model">15. Trust And Safety Model</h2>
+<h3 id="15-1-no-silent-production-mutation">15.1 No Silent Production Mutation</h3>
+<p>LoopForge can run in three modes:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Mode</th>
+<th>Behavior</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Suggest</td>
+<td>Writes issue and patch files only.</td>
+</tr>
+<tr>
+<td>PR</td>
+<td>Opens a PR after gates pass.</td>
+</tr>
+<tr>
+<td>Apply</td>
+<td>Applies local patch for experimentation. Disabled by default.</td>
+</tr>
+</tbody></table></div>
+<p>Production deployment is always outside the default automatic loop.</p>
+<h3 id="15-2-privacy-defaults">15.2 Privacy Defaults</h3>
+<p>Default trace ingestion should:</p>
+<ul>
+<li>Redact emails, phone numbers, secrets, tokens, and common identifiers.</li>
+<li>Hash stable user and session IDs.</li>
+<li>Store raw traces separately from normalized/redacted traces.</li>
+<li>Never include secrets in model calls.</li>
+<li>Allow local-only operation.</li>
+<li>Allow teams to use local models or approved model providers for probabilistic diagnosis.</li>
+</ul>
+<h3 id="15-3-security-controls">15.3 Security Controls</h3>
+<ul>
+<li>Tool call arguments containing secrets are masked.</li>
+<li>External LLM calls are disabled unless configured.</li>
+<li>Patch generator runs with read-only access to the repo except designated output paths.</li>
+<li>PR creation requires explicit credentials.</li>
+<li>Gate runner should run in an isolated process.</li>
+<li>Unsafe issue categories require human or security approval before PR merge or deployment.</li>
+</ul>
+<h3 id="15-4-prompt-injection-defense">15.4 Prompt Injection Defense</h3>
+<p>Tool outputs and traces are untrusted data. LoopForge must never treat trace content as instructions to LoopForge itself.</p>
+<h3 id="15-5-recommendation-trust-architecture">15.5 Recommendation Trust Architecture</h3>
+<p>Trust is easier to lose than to earn. LoopForge should be designed so low-quality recommendations are rare, visible, and recoverable.</p>
+<p>Requirements:</p>
+<ul>
+<li>Default to high-precision recommendations, even if that means fewer patches.</li>
+<li>Produce competing hypotheses when evidence is ambiguous.</li>
+<li>Distinguish trace evidence, codebase evidence, eval evidence, and model inference.</li>
+<li>Require codebase grounding before behavioral patch proposals.</li>
+<li>Require an eval addition or eval update for every behavior-changing patch.</li>
+<li>Use patch confidence, issue confidence, and artifact-discovery confidence separately.</li>
+<li>Cap automated PR volume so maintainers are never flooded.</li>
+<li>Label risky patches for security or domain review.</li>
+<li>Track recommendation acceptance, rejection, and revert rates.</li>
+<li>Demote patch strategies that are repeatedly rejected in a repo.</li>
+<li>Never auto-merge by default.</li>
+</ul>
+<h2 id="16-product-ux-requirements">16. Product UX Requirements</h2>
+<h3 id="16-1-first-30-minutes-trust-building-onboarding">16.1 First 30 Minutes: Trust-Building Onboarding</h3>
+<p>A new user should be able to:</p>
+<ol>
+<li>Install LoopForge.</li>
+<li>Run <code>loopforge connect</code> to auto-detect and connect the likely trace source.</li>
+<li>Run <code>loopforge discover</code> to create an AI-drafted harness map.</li>
+<li>Run <code>loopforge shadow --last 24h</code> to pull traces and generate AI-drafted issue clusters.</li>
+<li>See a first-value report with issue clusters, trace evidence, manifest coverage, harness-index confidence, replay readiness, and proposed evals.</li>
+<li>Open or preview an AI-drafted eval PR.</li>
+<li>See AI-drafted behavior-patch candidates ranked by confidence and autonomy level.</li>
+</ol>
+<p>This onboarding path is not the MVP boundary. It is the first trust-building experience inside the broader MVP. The product may already support behavioral patch proposals, but onboarding should make the first visible value an AI-drafted, evidence-backed eval PR and a clear report on what the system can safely automate next.</p>
+<h3 id="16-2-first-60-minutes-useful-integration">16.2 First 60 Minutes: Useful Integration</h3>
+<p>Within one hour, a team should be able to generate setup PRs that make the system materially more useful:</p>
+<ol>
+<li>Runtime harness manifest instrumentation PR.</li>
+<li>Trace span enrichment PR.</li>
+<li>Tool side-effect classification PR.</li>
+<li>Side-effect-safe replay stub PR.</li>
+<li>CI gate PR.</li>
+<li>Default monitor config PR.</li>
+<li>Starter eval suite PR from AI-observed failures.</li>
+</ol>
+<h3 id="16-3-first-week">16.3 First Week</h3>
+<p>A team should be able to:</p>
+<ol>
+<li>Add CI gate.</li>
+<li>Connect production trace export, polling, or subscription.</li>
+<li>Keep the codebase/harness index updated automatically.</li>
+<li>Create a baseline eval suite.</li>
+<li>Merge at least one patch PR.</li>
+<li>Generate a model launch comparison report.</li>
+</ol>
+<h3 id="16-4-developer-ergonomics">16.4 Developer Ergonomics</h3>
+<p>Commands should be explicit, inspectable, and scriptable. Avoid hidden state.</p>
+<p>Bad:</p>
+<pre><code class="language-bash">loopforge improve</code></pre>
+<p>Good:</p>
+<pre><code class="language-bash">loopforge mine --since 7d
+loopforge propose ISSUE-17 --strategy smallest-safe-patch
+loopforge gate PATCH-17-a --suite core</code></pre>
+<h3 id="16-5-autonomy-ramp">16.5 Autonomy Ramp</h3>
+<p>Teams should be able to increase LoopForge&#x27;s autonomy by patch class:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Level</th>
+<th>Allowed behavior</th>
+<th>Intended use</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>0. Observe and draft</td>
+<td>Monitor traces, discover harness, draft issues, draft evals, draft patches.</td>
+<td>Initial shadow mode.</td>
+</tr>
+<tr>
+<td>1. Eval PRs</td>
+<td>Open AI-drafted PRs that add or update evals only.</td>
+<td>First adoption step.</td>
+</tr>
+<tr>
+<td>2. Documentation and Skill PRs</td>
+<td>Open AI-drafted PRs for Skill docs, examples, and low-risk procedural clarifications.</td>
+<td>Early trust expansion.</td>
+</tr>
+<tr>
+<td>3. Tool description PRs</td>
+<td>Open AI-drafted PRs for tool descriptions and non-permission semantics.</td>
+<td>Mature workflow.</td>
+</tr>
+<tr>
+<td>4. Prompt and routing PRs</td>
+<td>Open AI-drafted PRs for prompts, routing, and context policy changes.</td>
+<td>Requires strong gates and reviewer confidence.</td>
+</tr>
+<tr>
+<td>5. Permission or side-effect policy PRs</td>
+<td>Open AI-drafted PRs for authorization, confirmation, or side-effect behavior.</td>
+<td>Requires security review by default.</td>
+</tr>
+</tbody></table></div>
+<p>The MVP should support multiple levels. Onboarding should start with AI-observed and AI-drafted artifacts immediately, while restricting which artifacts can become PRs until trust gates pass.</p>
+<h2 id="17-mvp-scope">17. MVP Scope</h2>
+<h3 id="17-1-mvp-includes">17.1 MVP Includes</h3>
+<ul>
+<li>CLI.</li>
+<li><code>loopforge connect</code> guided adapter setup.</li>
+<li>Local monitoring service with configurable schedules.</li>
+<li>Local file-based project.</li>
+<li>SQLite metadata store.</li>
+<li>Automated trace ingestion from configured sources.</li>
+<li>Codebase discovery and semantic harness index.</li>
+<li>Runtime harness manifest schema and trace linkage.</li>
+<li>Runtime manifest emission SDK helpers.</li>
+<li>JSONL trace adapter.</li>
+<li>OpenTelemetry/OpenInference trace mapping.</li>
+<li>Langfuse export adapter.</li>
+<li>Phoenix export adapter.</li>
+<li>LangSmith export/API adapter where API access permits.</li>
+<li>Trace-observability-aware failure ontology.</li>
+<li>Probabilistic issue classification and semantic clustering.</li>
+<li>LLM-assisted diagnosis with local redaction.</li>
+<li>Candidate patch generation for Markdown and YAML harness artifacts.</li>
+<li>Eval generation in YAML/JSONL.</li>
+<li>AI-drafted evaluator generation and validation records.</li>
+<li>Setup PR generation for manifests, trace enrichment, side-effect classes, replay stubs, CI, and monitor config.</li>
+<li>Side-effect-safe replay mode with recorded or mocked tool outputs.</li>
+<li>Hard acceptance gates for schemas, patch scope, permissions, safety, and regression results.</li>
+<li>LLM-as-judge scorer support.</li>
+<li>Gate report.</li>
+<li>Git patch export.</li>
+<li>GitHub PR creation.</li>
+<li>Autonomy ramp from read-only monitoring through gated behavior-patch PRs.</li>
+</ul>
+<h3 id="17-2-mvp-excludes">17.2 MVP Excludes</h3>
+<ul>
+<li>Hosted SaaS.</li>
+<li>Multi-tenant web dashboard.</li>
+<li>Automatic production deployment.</li>
+<li>Full prompt optimizer search.</li>
+<li>Fine-tuning.</li>
+<li>Owning memory implementation.</li>
+<li>Arbitrary code patches without explicit opt-in.</li>
+<li>Browser-based trace replay UI.</li>
+<li>Auto-merge of behavioral patches.</li>
+<li>Requiring human-authored ontologies or evals before first value.</li>
+</ul>
+<h2 id="18-version-1-0-scope">18. Version 1.0 Scope</h2>
+<p>Version 1.0 should add:</p>
+<ul>
+<li>GitHub App.</li>
+<li>GitLab support.</li>
+<li>Hosted optional control plane.</li>
+<li>Web UI.</li>
+<li>OpenInference and OTLP native collector.</li>
+<li>Braintrust adapter where APIs permit.</li>
+<li>Promptfoo export/import.</li>
+<li>DSPy/GEPA integration for optimizer-backed patch candidates.</li>
+<li>Model launch simulation workflow.</li>
+<li>Canary monitoring workflow.</li>
+<li>Organization-wide ontology reporting.</li>
+<li>Plugin SDK.</li>
+</ul>
+<h2 id="19-integration-strategy">19. Integration Strategy</h2>
+<h3 id="19-1-trace-sources">19.1 Trace Sources</h3>
+<p>Priority order:</p>
+<ol>
+<li>OpenTelemetry/OpenInference.</li>
+<li>Langfuse export/API.</li>
+<li>Phoenix export/API.</li>
+<li>LangSmith export/API.</li>
+<li>JSONL universal trace format.</li>
+<li>Braintrust export/API.</li>
+<li>Custom adapter SDK.</li>
+</ol>
+<h3 id="19-2-agent-frameworks">19.2 Agent Frameworks</h3>
+<p>LoopForge should not depend on a framework. It should provide optional helpers for:</p>
+<ul>
+<li>LangChain/LangGraph.</li>
+<li>OpenAI Agents SDK.</li>
+<li>Vercel AI SDK.</li>
+<li>LlamaIndex.</li>
+<li>CrewAI.</li>
+<li>AutoGen/AG2.</li>
+<li>Mastra.</li>
+<li>Pydantic AI.</li>
+<li>Custom HTTP agents.</li>
+</ul>
+<h3 id="19-3-ci">19.3 CI</h3>
+<p>Priority order:</p>
+<ol>
+<li>GitHub Actions.</li>
+<li>Local CLI.</li>
+<li>GitLab CI.</li>
+<li>Buildkite/CircleCI.</li>
+</ol>
+<h3 id="19-4-evaluators">19.4 Evaluators</h3>
+<p>Support:</p>
+<ul>
+<li>Python scorers.</li>
+<li>TypeScript scorers later.</li>
+<li>LLM-as-judge scorers.</li>
+<li>JSON schema validators.</li>
+<li>Tool-sequence validators.</li>
+<li>Cost/latency budget checks.</li>
+<li>Pairwise comparison.</li>
+</ul>
+<h2 id="20-adoption-strategy">20. Adoption Strategy</h2>
+<h3 id="20-1-positioning">20.1 Positioning</h3>
+<p>Do not lead with &quot;self-improving agents.&quot; Lead with:</p>
+<p>&quot;Turn failed traces into reviewed harness PRs and regression evals.&quot;</p>
+<p>This is concrete, trustworthy, and buyer-legible.</p>
+<h3 id="20-2-distribution">20.2 Distribution</h3>
+<ul>
+<li>Open-source GitHub repo.</li>
+<li><code>pipx install loopforge</code>.</li>
+<li><code>uv tool install loopforge</code>.</li>
+<li>Docker image.</li>
+<li>GitHub Action.</li>
+<li>Example integrations for Langfuse, Phoenix, LangSmith, LangGraph, OpenAI Agents SDK.</li>
+<li>Public demo agent with intentionally failing traces.</li>
+</ul>
+<h3 id="20-3-trust-building-features">20.3 Trust-Building Features</h3>
+<ul>
+<li>Local-only mode.</li>
+<li>Redaction preview.</li>
+<li>Dry-run mode.</li>
+<li>No hidden mutation.</li>
+<li>Every LLM call logged.</li>
+<li>Hard release gates around probabilistic recommendations.</li>
+<li>Codebase grounding for every behavioral patch.</li>
+<li>Recommendation quality ladder.</li>
+<li>PRs include before/after evals.</li>
+<li>Patch size limits.</li>
+<li>Automated PR volume limits.</li>
+<li>Rollback commands.</li>
+</ul>
+<h3 id="20-4-recommended-enterprise-pilot">20.4 Recommended Enterprise Pilot</h3>
+<p>For serious production agent teams, the recommended adoption path is a 30-day trust ramp:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Period</th>
+<th>Mode</th>
+<th>Success question</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Days 1-7</td>
+<td>AI-observed shadow monitoring</td>
+<td>Does LoopForge find real issues and map them to the harness accurately?</td>
+</tr>
+<tr>
+<td>Days 8-14</td>
+<td>AI-drafted eval PRs</td>
+<td>Are generated evals accepted and useful?</td>
+</tr>
+<tr>
+<td>Days 15-21</td>
+<td>Low-risk Skill and tool-description PRs</td>
+<td>Are behavior-adjacent recommendations precise enough for maintainers?</td>
+</tr>
+<tr>
+<td>Days 22-30</td>
+<td>Gated behavior-patch PRs for selected patch classes</td>
+<td>Do manifest, replay, regression, and reviewer outcomes justify more autonomy?</td>
+</tr>
+</tbody></table></div>
+<p>The product should support more than this from day one, but this pilot path gives companies a safe way to earn trust before enabling higher autonomy levels.</p>
+<h3 id="20-5-community-growth">20.5 Community Growth</h3>
+<p>Make the canonical failure ontology and eval recipes the community hub.</p>
+<p>Possible community artifacts:</p>
+<ul>
+<li><code>failure-ontology.yaml</code>.</li>
+<li><code>agent-launch-gates.yaml</code>.</li>
+<li><code>skill-trigger-evals/</code>.</li>
+<li><code>tool-misuse-evals/</code>.</li>
+<li><code>prompt-injection-regressions/</code>.</li>
+<li><code>model-upgrade-playbooks/</code>.</li>
+</ul>
+<h2 id="21-success-metrics">21. Success Metrics</h2>
+<h3 id="21-1-product-metrics">21.1 Product Metrics</h3>
+<ul>
+<li>Time from trace ingestion to first issue.</li>
+<li>Time from issue to gated PR.</li>
+<li>Monitor freshness and trace coverage.</li>
+<li>Codebase index freshness and artifact discovery confidence.</li>
+<li>Percent of patches accepted.</li>
+<li>Percent of accepted patches with eval coverage.</li>
+<li>Targeted issue fix rate.</li>
+<li>Regression rate after merge.</li>
+<li>Model launch regression catch rate.</li>
+<li>Median setup time.</li>
+<li>Number of supported trace adapters.</li>
+</ul>
+<h3 id="21-2-adoption-metrics">21.2 Adoption Metrics</h3>
+<ul>
+<li>GitHub stars and forks.</li>
+<li>Weekly active repos.</li>
+<li>CI gate runs per week.</li>
+<li>PRs opened by LoopForge.</li>
+<li>Accepted patch PRs.</li>
+<li>Community eval packs.</li>
+<li>Framework integrations contributed by community.</li>
+</ul>
+<h3 id="21-3-quality-metrics">21.3 Quality Metrics</h3>
+<ul>
+<li>False positive issue rate.</li>
+<li>False diagnosis rate.</li>
+<li>Bad recommendation rate.</li>
+<li>Patch revert rate.</li>
+<li>Maintainer edit distance on generated patches.</li>
+<li>Patch rejection reasons.</li>
+<li>LLM judge calibration drift.</li>
+<li>Evaluator true positive and true negative rates.</li>
+<li>Evaluator precision and recall by failure mode.</li>
+<li>Evaluator prevalence estimate confidence intervals.</li>
+<li>Pass^k reliability trend for critical workflows.</li>
+<li>Safety eval pass rate.</li>
+<li>Redaction miss rate.</li>
+</ul>
+<h3 id="21-4-trust-launch-thresholds">21.4 Trust Launch Thresholds</h3>
+<p>LoopForge should ship with conservative default thresholds that teams can tune:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Metric</th>
+<th>Default launch target</th>
+<th>Why it matters</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Artifact mapping precision</td>
+<td>95 percent on reviewed artifacts</td>
+<td>Bad codebase grounding poisons every downstream recommendation.</td>
+</tr>
+<tr>
+<td>Runtime manifest coverage</td>
+<td>90 percent of production traces for behavior-patch mode</td>
+<td>Behavior patches need to know what actually ran.</td>
+</tr>
+<tr>
+<td>Issue precision</td>
+<td>80 percent of surfaced issues accepted as real by maintainers</td>
+<td>Prevents issue spam.</td>
+</tr>
+<tr>
+<td>Eval PR acceptance rate</td>
+<td>70 percent or higher during onboarding</td>
+<td>The first trust experience should feel useful.</td>
+</tr>
+<tr>
+<td>Behavioral patch PR acceptance rate</td>
+<td>50 percent or higher after ramp-up</td>
+<td>Lower rates imply reviewer burden is too high.</td>
+</tr>
+<tr>
+<td>Patch revert rate</td>
+<td>Under 2 percent</td>
+<td>Reverts are the clearest sign of trust damage.</td>
+</tr>
+<tr>
+<td>Maintainer edit distance</td>
+<td>Median under 30 percent for accepted PRs</td>
+<td>High edit distance means the generated patch is not close enough.</td>
+</tr>
+<tr>
+<td>Redaction miss rate</td>
+<td>0 known misses in release qualification</td>
+<td>Privacy failures are existential.</td>
+</tr>
+<tr>
+<td>Side-effect replay escape rate</td>
+<td>0</td>
+<td>Replay must never trigger real production effects.</td>
+</tr>
+<tr>
+<td>Evaluator validation certificate</td>
+<td>Configurable by domain, with minimum evidence before blocking use</td>
+<td>Unvalidated evaluators should not block or approve releases.</td>
+</tr>
+<tr>
+<td>Evaluator true positive rate</td>
+<td>90 percent or higher for blocking evaluators</td>
+<td>Blocking gates must catch known failures.</td>
+</tr>
+<tr>
+<td>Evaluator true negative rate</td>
+<td>90 percent or higher for blocking evaluators</td>
+<td>Blocking gates must not create noisy false alarms.</td>
+</tr>
+</tbody></table></div>
+<h2 id="22-competitive-landscape">22. Competitive Landscape</h2>
+<p>LoopForge should acknowledge existing tools and win by composition.</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Tool</th>
+<th>Strength</th>
+<th>LoopForge relationship</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>LangSmith Engine</td>
+<td>Productized closed-loop trace issue and fix workflow</td>
+<td>Inspiration and possible adapter target; LoopForge is OSS and repo-native.</td>
+</tr>
+<tr>
+<td>Langfuse</td>
+<td>OSS observability, prompts, evals, datasets</td>
+<td>Ingest traces, emit datasets, optionally write prompt versions.</td>
+</tr>
+<tr>
+<td>Phoenix</td>
+<td>OSS observability, evals, prompt experiments</td>
+<td>Ingest traces, emit experiments/datasets.</td>
+</tr>
+<tr>
+<td>Braintrust</td>
+<td>Strong eval workflows and production scoring</td>
+<td>Export evals and ingest traces where possible.</td>
+</tr>
+<tr>
+<td>Promptfoo</td>
+<td>CI evals and red teaming</td>
+<td>Emit promptfoo-compatible evals.</td>
+</tr>
+<tr>
+<td>DSPy/GEPA</td>
+<td>Prompt/program optimization</td>
+<td>Use as optional optimizer backends.</td>
+</tr>
+<tr>
+<td>OpenAI Evals</td>
+<td>Eval framework</td>
+<td>Export compatible eval data where useful.</td>
+</tr>
+</tbody></table></div>
+<h2 id="23-roadmap">23. Roadmap</h2>
+<h3 id="phase-0-spec-and-seed-repo">Phase 0: Spec And Seed Repo</h3>
+<ul>
+<li>Product spec.</li>
+<li>Engineering design.</li>
+<li>Canonical schemas.</li>
+<li>Demo traces.</li>
+<li>Demo harness.</li>
+</ul>
+<h3 id="phase-1-local-mvp">Phase 1: Local MVP</h3>
+<ul>
+<li>CLI.</li>
+<li>Config.</li>
+<li>Scheduled monitor.</li>
+<li>Automated trace ingestion.</li>
+<li>Codebase discovery.</li>
+<li>Harness artifact index.</li>
+<li>Runtime harness manifest schema and SDK helpers.</li>
+<li>Redaction.</li>
+<li>Probabilistic issue mining.</li>
+<li>Side-effect-safe replay.</li>
+<li>Autonomy ramp.</li>
+<li>Trust qualification report.</li>
+<li>Patch proposal.</li>
+<li>Eval generation.</li>
+<li>Local gates.</li>
+<li>Git patch export.</li>
+</ul>
+<h3 id="phase-2-pr-workflow">Phase 2: PR Workflow</h3>
+<ul>
+<li>GitHub PR creation.</li>
+<li>GitHub Action.</li>
+<li>PR comments.</li>
+<li>Gate status checks.</li>
+<li>Patch rollback metadata.</li>
+</ul>
+<h3 id="phase-3-integrations">Phase 3: Integrations</h3>
+<ul>
+<li>Langfuse adapter.</li>
+<li>Phoenix adapter.</li>
+<li>LangSmith adapter.</li>
+<li>OpenTelemetry/OpenInference collector.</li>
+<li>Promptfoo export.</li>
+<li>LangChain/LangGraph recipe.</li>
+<li>OpenAI Agents SDK recipe.</li>
+</ul>
+<h3 id="phase-4-model-launch-simulator">Phase 4: Model Launch Simulator</h3>
+<ul>
+<li>Replay prior traces against candidate model.</li>
+<li>Compare behavior deltas.</li>
+<li>Generate launch report.</li>
+<li>Recommend harness updates.</li>
+<li>Canary monitor.</li>
+</ul>
+<h3 id="phase-5-optimizer-backends">Phase 5: Optimizer Backends</h3>
+<ul>
+<li>DSPy/GEPA optional patch candidates.</li>
+<li>Multi-candidate patch search.</li>
+<li>Budget-aware optimizer runs.</li>
+<li>Evaluator validation tooling.</li>
+</ul>
+<h3 id="phase-6-hosted-optional-layer">Phase 6: Hosted Optional Layer</h3>
+<ul>
+<li>Team dashboard.</li>
+<li>Shared issue board.</li>
+<li>Central artifact registry.</li>
+<li>Enterprise SSO.</li>
+<li>Private cloud deployment.</li>
+</ul>
+<h2 id="24-risks-and-mitigations">24. Risks And Mitigations</h2>
+<h3 id="24-1-trust-critical-risk-bad-recommendations">24.1 Trust-Critical Risk: Bad Recommendations</h3>
+<p>Bad recommendations or bad patches are the existential product risk. Once a team believes the system wastes reviewer time or makes unsafe changes, it will be removed and may not get another chance.</p>
+<p>Mitigation must be architectural:</p>
+<ul>
+<li>Use high recommendation thresholds by default.</li>
+<li>Require codebase grounding and trace evidence for behavioral patches.</li>
+<li>Separate observation, hypothesis, patch candidate, gated patch, and trusted pattern levels.</li>
+<li>Show uncertainty and competing hypotheses.</li>
+<li>Gate patches before PR creation when configured.</li>
+<li>Add regression evals with every behavioral patch.</li>
+<li>Cap PR volume.</li>
+<li>Track maintainer rejections, edits, reverts, and muted issue categories.</li>
+<li>Learn repo-local reviewer preferences from accepted and rejected LoopForge PRs.</li>
+<li>Keep low-confidence behavior patches as report-only previews rather than PRs, while still AI-drafting the issue, eval, and patch candidate for learning.</li>
+</ul>
+<h3 id="24-2-risk-table">24.2 Risk Table</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Risk</th>
+<th>Impact</th>
+<th>Mitigation</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Bad patches or bad recommendations degrade behavior</td>
+<td>Loss of trust</td>
+<td>Use the recommendation quality ladder, require grounding, gate all patches, require human review, cap PR volume, and learn from rejections.</td>
+</tr>
+<tr>
+<td>LLM diagnoses wrong root cause</td>
+<td>Wasted time</td>
+<td>Evidence requirements, confidence scores, competing hypotheses.</td>
+</tr>
+<tr>
+<td>Trace privacy leak</td>
+<td>Severe</td>
+<td>Local-first mode, redaction preview, no external LLM calls by default.</td>
+</tr>
+<tr>
+<td>Prompt sediment</td>
+<td>Harness becomes bloated</td>
+<td>Patch right layer, max prompt diff budgets, prompt lint.</td>
+</tr>
+<tr>
+<td>Eval overfitting</td>
+<td>False confidence</td>
+<td>Holdout suites, production canaries, diverse trace sampling.</td>
+</tr>
+<tr>
+<td>Evaluator drift</td>
+<td>Bad gate decisions</td>
+<td>Evaluator validation records, hard gates, frozen judge configs, and periodic revalidation.</td>
+</tr>
+<tr>
+<td>Too hard to adopt</td>
+<td>Low adoption</td>
+<td>Automatic discovery, scheduled monitoring, trace adapters, minimal config, framework recipes.</td>
+</tr>
+<tr>
+<td>Existing tools see it as competitor</td>
+<td>Ecosystem friction</td>
+<td>Integrate and export rather than replace.</td>
+</tr>
+<tr>
+<td>Automated changes feel unsafe</td>
+<td>Rejection by security teams</td>
+<td>PR-only default, audit logs, explicit allowlists.</td>
+</tr>
+</tbody></table></div>
+<h2 id="25-product-decisions">25. Product Decisions</h2>
+<ol>
+<li>Default mode is local, monitored, and PR-based.</li>
+<li>The core abstraction is a versioned harness artifact, not a prompt.</li>
+<li>The first use case is scheduled trace monitoring to gated PR.</li>
+<li>The first technical integration target is OpenTelemetry/OpenInference plus Langfuse, Phoenix, LangSmith, and JSONL.</li>
+<li>The first platform integration is GitHub.</li>
+<li>The first storage backend is SQLite plus files.</li>
+<li>Onboarding starts with AI-observed reports, AI-drafted eval PRs, and AI-drafted behavior-patch previews, while the MVP can still include broader behavior-patch capability.</li>
+<li>Observation, failure analysis, evals, patches, and PRs are AI-drafted by default.</li>
+<li>The failure ontology is canonical and versioned, with local extensions mapped back to canonical layers.</li>
+<li>Probabilistic diagnosis and patching are logged and confidence-scored.</li>
+<li>Eval generation is mandatory for every proposed fix unless explicitly disabled.</li>
+<li>Evaluator validation records are required before evaluators can become blocking gates.</li>
+<li>Contractual checks are used for objective product contracts, while discovery and diagnosis remain probabilistic.</li>
+<li>Acceptance gates are stricter than patch generation.</li>
+<li>Runtime harness manifests are preferred over repository inference when diagnosing a trace.</li>
+<li>Replay must fail closed unless side-effect safety is proven.</li>
+<li>LoopForge should understand the codebase before recommending behavior changes.</li>
+<li>LoopForge should be useful even if the team never uses the optional web UI.</li>
+</ol>
+<h2 id="26-public-references">26. Public References</h2>
+<ul>
+<li><a href="https://docs.langchain.com/langsmith/engine">LangSmith Engine</a></li>
+<li><a href="https://github.com/langfuse/langfuse">Langfuse</a></li>
+<li><a href="https://github.com/Arize-ai/phoenix">Arize Phoenix</a></li>
+<li><a href="https://www.promptfoo.dev/docs/intro/">Promptfoo</a></li>
+<li><a href="https://github.com/stanfordnlp/dspy">DSPy</a></li>
+<li><a href="https://github.com/CerebrasResearch/gepa">GEPA</a></li>
+<li><a href="https://openai.com/index/deployment-simulation/">OpenAI Deployment Simulation</a></li>
+<li><a href="https://model-spec.openai.com/2025-04-11.html">OpenAI Model Spec</a></li>
+<li><a href="https://www.anthropic.com/news/reflections-on-our-responsible-scaling-policy">Anthropic Responsible Scaling Policy reflections</a></li>
+<li><a href="https://deepmind.google/frontier-safety/">Google DeepMind Frontier Safety</a></li>
+<li><a href="https://github.com/meta-llama/llama-models/blob/main/models/llama4/MODEL_CARD.md">Meta Llama 4 model card</a></li>
+</ul>
+      </article>
+    </main>
+  </div>
+</body>
+</html>

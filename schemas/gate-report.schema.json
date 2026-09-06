@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/gate-report.schema.json",
+  "title": "LoopForge Gate Report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "gate_report_id",
+    "patch_id",
+    "status",
+    "recommendation",
+    "suites"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "gate_report_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "patch_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "warn", "reject", "error", "needs_human_review"]
+    },
+    "recommendation": {
+      "type": "string",
+      "enum": ["merge_after_human_review", "revise", "reject", "needs_security_review", "needs_domain_review"]
+    },
+    "target_issue": {
+      "type": "object",
+      "properties": {
+        "fixed_cases": {"type": "integer", "minimum": 0},
+        "total_cases": {"type": "integer", "minimum": 0},
+        "score_before": {"type": "number"},
+        "score_after": {"type": "number"}
+      },
+      "additionalProperties": false
+    },
+    "suites": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": {"type": "string"},
+          "status": {"type": "string", "enum": ["pass", "warn", "reject", "error"]},
+          "score_before": {"type": "number"},
+          "score_after": {"type": "number"},
+          "failed_cases": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "cost_delta_percent": {
+      "type": "number"
+    },
+    "latency_p95_delta_percent": {
+      "type": "number"
+    },
+    "trust": {
+      "type": "object",
+      "properties": {
+        "autonomy_level": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "runtime_manifest_coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "artifact_grounding_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "recommendation_quality_level": {
+          "type": "string",
+          "enum": ["observation", "hypothesis", "patch_candidate", "gated_patch", "trusted_pattern"]
+        },
+        "replay_sandbox": {
+          "type": "string",
+          "enum": ["pass", "warn", "reject", "not_applicable"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "regressions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["case_id", "description"],
+        "properties": {
+          "case_id": {"type": "string"},
+          "description": {"type": "string"},
+          "severity": {"type": "string", "enum": ["low", "medium", "high", "critical"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
