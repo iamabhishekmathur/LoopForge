@@ -68,6 +68,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 
 - [Product Spec](docs/product-spec.md)
 - [Engineering Design](docs/engineering-design.md)
+- [LangSmith Engine Delta Plan](docs/langsmith-engine-delta-plan.md)
 - [Evaluator Validation Schema](schemas/evaluator-validation.schema.json)
 - [Gate Report Schema](schemas/gate-report.schema.json)
 - [Harness Artifact Schema](schemas/harness-artifact.schema.json)
