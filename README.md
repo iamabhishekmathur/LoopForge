@@ -101,6 +101,23 @@ For teams using OpenTelemetry, OpenInference, Langfuse, Phoenix, LangSmith, Brai
 
 For teams using GitHub, PR generation should work out of the box. GitLab and local patch export can follow.
 
+## Development
+
+Run the CLI from source:
+
+```bash
+python -m loopforge --help
+python -m loopforge init
+python -m loopforge doctor
+python -m loopforge schemas validate
+```
+
+Run tests:
+
+```bash
+pytest
+```
+
 ## Design Principles
 
 - Evidence over vibes.

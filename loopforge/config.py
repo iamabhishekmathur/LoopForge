@@ -1,0 +1,187 @@
+"""Project configuration generation and lightweight inspection."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from .paths import LOCAL_DIR, PROJECT_CONFIG
+
+
+DEFAULT_LOCAL_DIRS = [
+    "cache",
+    "index",
+    "issues",
+    "manifests",
+    "patches",
+    "reports",
+    "traces",
+]
+
+
+@dataclass(frozen=True)
+class InitOptions:
+    project_name: str
+    trace_path: str = "traces/*.jsonl"
+    force: bool = False
+
+
+def default_config_text(options: InitOptions) -> str:
+    return f"""version: 1
+project:
+  name: {options.project_name}
+
+monitor:
+  enabled: true
+  schedule: "every 6 hours"
+  trace_window: "24 hours"
+  min_issue_confidence: 0.78
+  min_patch_confidence: 0.82
+  ai_draft_all_artifacts: true
+  open_prs: false
+  max_prs_per_day: 3
+  autonomy_level: 1
+
+analysis:
+  max_traces_per_scan: 1000
+  max_full_traces_per_scan: 75
+  max_model_calls_per_scan: 250
+  max_estimated_cost_usd_per_scan: 10
+  analysis_level: standard
+
+connect:
+  auto_detect_trace_source: true
+  auto_generate_setup_prs: true
+
+discovery:
+  enabled: true
+  refresh_on_git_change: true
+  min_artifact_confidence: 0.75
+  include:
+    - .
+  exclude:
+    - .git/**
+    - node_modules/**
+    - .venv/**
+    - .loopforge/**
+
+traces:
+  sources:
+    - id: local-jsonl
+      type: jsonl
+      path: {options.trace_path}
+
+runtime_manifest:
+  required_for_behavior_patches: true
+  min_coverage_percent: 90
+  prefer_manifest_over_static_index: true
+
+redaction:
+  mode: strict
+  hash_stable_ids: true
+  external_llm_allowed: false
+
+gates:
+  default_suite: core
+  require_human_approval: true
+  max_prompt_diff_lines: 80
+  max_cost_regression_percent: 10
+
+evaluator_validation:
+  required_for_blocking_gates: true
+  min_true_positive_rate: 0.90
+  min_true_negative_rate: 0.90
+  freeze_judge_prompts: true
+  require_train_dev_test_split: true
+"""
+
+
+def default_agent_profile_text(project_name: str) -> str:
+    return f"""# Agent Profile
+
+Project: {project_name}
+
+This file is generated project context for LoopForge. It is not the source of
+truth for agent behavior; code, harness artifacts, runtime manifests, traces,
+and evals remain authoritative.
+
+## Agent Purpose
+
+Unknown.
+
+## User Workflows
+
+Unknown.
+
+## Runtime Architecture
+
+Unknown.
+
+## Harness Summary
+
+Unknown.
+
+## Trace Shape Guide
+
+Unknown.
+
+## Ontology Priorities
+
+Unknown.
+
+## Known Failure Patterns
+
+Unknown.
+
+## Reviewer Preferences
+
+Unknown.
+
+## Trust Qualification
+
+Initial status: unqualified.
+
+## Observability Gaps
+
+Unknown.
+"""
+
+
+def initialize_project(root: Path, options: InitOptions) -> list[Path]:
+    created: list[Path] = []
+    config_path = root / PROJECT_CONFIG
+    local_dir = root / LOCAL_DIR
+    profile_path = local_dir / "agent-profile.md"
+
+    if config_path.exists() and not options.force:
+        raise FileExistsError(f"{config_path} already exists. Use --force to overwrite.")
+
+    local_dir.mkdir(exist_ok=True)
+    created.append(local_dir)
+
+    for name in DEFAULT_LOCAL_DIRS:
+        path = local_dir / name
+        path.mkdir(exist_ok=True)
+        created.append(path)
+
+    config_path.write_text(default_config_text(options), encoding="utf-8")
+    created.append(config_path)
+
+    if not profile_path.exists() or options.force:
+        profile_path.write_text(
+            default_agent_profile_text(options.project_name),
+            encoding="utf-8",
+        )
+        created.append(profile_path)
+
+    return created
+
+
+def inspect_project(root: Path) -> dict[str, bool]:
+    local_dir = root / LOCAL_DIR
+    return {
+        "config": (root / PROJECT_CONFIG).is_file(),
+        "local_dir": local_dir.is_dir(),
+        "agent_profile": (local_dir / "agent-profile.md").is_file(),
+        **{f"dir_{name}": (local_dir / name).is_dir() for name in DEFAULT_LOCAL_DIRS},
+    }

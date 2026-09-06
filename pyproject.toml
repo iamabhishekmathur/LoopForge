@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loopforge"
+version = "0.1.0"
+description = "Open-source closed-loop improvement engine for AI agent harnesses."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+authors = [
+  {name = "LoopForge Contributors"}
+]
+keywords = ["agents", "evals", "observability", "llm", "testing"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Topic :: Software Development :: Testing"
+]
+dependencies = []
+
+[project.scripts]
+loopforge = "loopforge.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["loopforge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

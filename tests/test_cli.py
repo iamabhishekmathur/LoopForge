@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+import os
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def run_loopforge(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    return subprocess.run(
+        [sys.executable, "-m", "loopforge", *args],
+        cwd=cwd,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_init_creates_project_files(tmp_path: Path) -> None:
+    result = run_loopforge(["init", "--project-name", "support-agent"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "loopforge.yaml").is_file()
+    assert (tmp_path / ".loopforge" / "agent-profile.md").is_file()
+    assert (tmp_path / ".loopforge" / "issues").is_dir()
+    assert "support-agent" in (tmp_path / "loopforge.yaml").read_text(encoding="utf-8")
+
+
+def test_init_refuses_to_overwrite_existing_config(tmp_path: Path) -> None:
+    first = run_loopforge(["init"], tmp_path)
+    second = run_loopforge(["init"], tmp_path)
+
+    assert first.returncode == 0
+    assert second.returncode == 2
+    assert "already exists" in second.stderr
+
+
+def test_doctor_reports_healthy_project(tmp_path: Path) -> None:
+    init = run_loopforge(["init"], tmp_path)
+    doctor = run_loopforge(["doctor"], tmp_path)
+
+    assert init.returncode == 0
+    assert doctor.returncode == 0
+    assert "Project health: ok" in doctor.stdout
+
+
+def test_doctor_fails_outside_project(tmp_path: Path) -> None:
+    result = run_loopforge(["doctor"], tmp_path)
+
+    assert result.returncode == 2
+    assert "no loopforge.yaml found" in result.stderr
+
+
+def test_schemas_validate_command(tmp_path: Path) -> None:
+    init = run_loopforge(["init"], tmp_path)
+    validate = run_loopforge(["schemas", "validate"], tmp_path)
+
+    assert init.returncode == 0
+    assert validate.returncode == 0
+    assert "trace.schema.json" in validate.stdout
