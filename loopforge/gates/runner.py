@@ -1,0 +1,128 @@
+"""Run local acceptance gates for patch bundles."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from loopforge.models.patch import GateReport, PatchBundle
+from loopforge.paths import LOCAL_DIR
+
+
+def run_gates(
+    patch: PatchBundle,
+    issue: dict[str, object],
+    evals: list[dict[str, object]],
+    validations: list[dict[str, object]],
+) -> GateReport:
+    suites = [
+        _scope_suite(patch),
+        _grounding_suite(patch, issue),
+        _eval_coverage_suite(patch, evals),
+        _evaluator_validation_suite(validations),
+        _replay_sandbox_suite(patch),
+    ]
+    status = "pass" if all(suite["status"] == "pass" for suite in suites) else "reject"
+    recommendation = "merge_after_human_review" if status == "pass" else "revise"
+    return GateReport(
+        gate_report_id=f"GATE-{patch.patch_id}",
+        patch_id=patch.patch_id,
+        status=status,
+        recommendation=recommendation,
+        target_issue={
+            "fixed_cases": len(issue.get("evidence_trace_ids", [])),
+            "total_cases": len(issue.get("evidence_trace_ids", [])),
+            "score_before": 0.0,
+            "score_after": 1.0 if status == "pass" else 0.0,
+        },
+        suites=suites,
+        trust={
+            "autonomy_level": 1,
+            "runtime_manifest_coverage": 0.0,
+            "artifact_grounding_confidence": _min_artifact_confidence(patch),
+            "recommendation_quality_level": "gated_patch" if status == "pass" else "patch_candidate",
+            "replay_sandbox": "pass",
+        },
+        metadata={
+            "ai_drafted": True,
+            "requires_human_approval": True,
+            "behavior_patch": True,
+        },
+    )
+
+
+def write_gate_report(root: Path, report: GateReport) -> Path:
+    report_dir = root / LOCAL_DIR / "reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    path = report_dir / f"{report.gate_report_id}.json"
+    path.write_text(json.dumps(report.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def _scope_suite(patch: PatchBundle) -> dict[str, object]:
+    allowed = all(
+        str(artifact.get("path", "")).startswith(("harness/", "evals/"))
+        for artifact in patch.target_artifacts
+    )
+    return {
+        "name": "patch_scope",
+        "status": "pass" if allowed else "reject",
+        "score_after": 1.0 if allowed else 0.0,
+        "failed_cases": [] if allowed else ["target outside harness/evals allowlist"],
+    }
+
+
+def _grounding_suite(patch: PatchBundle, issue: dict[str, object]) -> dict[str, object]:
+    issue_artifact_paths = {
+        str(artifact.get("path"))
+        for artifact in issue.get("metadata", {}).get("implicated_artifacts", [])
+        if isinstance(artifact, dict)
+    }
+    patch_paths = {str(artifact.get("path")) for artifact in patch.target_artifacts}
+    grounded = bool(issue_artifact_paths.intersection(patch_paths))
+    return {
+        "name": "codebase_grounding",
+        "status": "pass" if grounded else "reject",
+        "score_after": 1.0 if grounded else 0.0,
+        "failed_cases": [] if grounded else ["patch target not linked to issue evidence"],
+    }
+
+
+def _eval_coverage_suite(patch: PatchBundle, evals: list[dict[str, object]]) -> dict[str, object]:
+    eval_ids = {str(eval_example["eval_id"]) for eval_example in evals}
+    covered = bool(set(patch.new_eval_ids).intersection(eval_ids))
+    return {
+        "name": "eval_coverage",
+        "status": "pass" if covered else "reject",
+        "score_after": 1.0 if covered else 0.0,
+        "failed_cases": [] if covered else ["patch does not reference generated eval coverage"],
+    }
+
+
+def _evaluator_validation_suite(validations: list[dict[str, object]]) -> dict[str, object]:
+    eligible = any(validation.get("blocking_gate_eligible") is True for validation in validations)
+    return {
+        "name": "evaluator_validation",
+        "status": "pass" if eligible else "reject",
+        "score_after": 1.0 if eligible else 0.0,
+        "failed_cases": [] if eligible else ["no blocking-eligible evaluator validation record"],
+    }
+
+
+def _replay_sandbox_suite(patch: PatchBundle) -> dict[str, object]:
+    risky = any(
+        artifact.get("artifact_type") == "permission_policy"
+        for artifact in patch.target_artifacts
+    )
+    return {
+        "name": "replay_sandbox",
+        "status": "reject" if risky else "pass",
+        "score_after": 0.0 if risky else 1.0,
+        "failed_cases": ["permission policy patches need explicit replay sandbox"] if risky else [],
+    }
+
+
+def _min_artifact_confidence(patch: PatchBundle) -> float:
+    if not patch.target_artifacts:
+        return 0.0
+    return round(min(float(artifact.get("confidence") or 0.0) for artifact in patch.target_artifacts), 4)

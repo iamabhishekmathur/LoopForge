@@ -114,3 +114,32 @@ def test_issues_commands_show_shadow_results(tmp_path: Path) -> None:
     assert "EVAL-0001" in eval_list.stdout
     assert "forbidden_tool_call" in eval_show.stdout
     assert "Blocking eligible: `True`" in eval_show.stdout
+
+
+def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> None:
+    project_root = copy_fixture(tmp_path)
+    shadow = run_loopforge(["shadow"], project_root)
+    propose = run_loopforge(["propose", "ISSUE-0001"], project_root)
+    patches_list = run_loopforge(["patches", "list"], project_root)
+    patches_show = run_loopforge(["patches", "show", "PATCH-0001"], project_root)
+    gate = run_loopforge(["gate", "PATCH-0001"], project_root)
+    patches_show_after_gate = run_loopforge(["patches", "show", "PATCH-0001"], project_root)
+
+    assert shadow.returncode == 0
+    assert propose.returncode == 0, propose.stderr
+    assert "Drafted patch PATCH-0001" in propose.stdout
+    assert patches_list.returncode == 0
+    assert "PATCH-0001" in patches_list.stdout
+    assert patches_show.returncode == 0
+    assert "explicitly confirmed" in patches_show.stdout
+    assert gate.returncode == 0, gate.stderr
+    assert "status: pass" in gate.stdout
+    assert "merge_after_human_review" in gate.stdout
+    patches_list_after_gate = run_loopforge(["patches", "list"], project_root)
+    assert "PATCH-0001  gated" in patches_list_after_gate.stdout
+    assert patches_show_after_gate.returncode == 0
+    assert "Latest Gate" in patches_show_after_gate.stdout
+
+    assert (project_root / ".loopforge" / "patches" / "PATCH-0001.json").is_file()
+    assert (project_root / ".loopforge" / "patches" / "PATCH-0001.diff").is_file()
+    assert (project_root / ".loopforge" / "reports" / "GATE-PATCH-0001.json").is_file()

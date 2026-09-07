@@ -20,7 +20,10 @@ from .issues.miner import mine_issues
 from .issues.report import issue_report_markdown, write_issue_report
 from .models.eval import EvalExample, EvaluatorDefinition, EvaluatorValidationRecord
 from .models.issue import Issue
+from .models.patch import PatchBundle, GateReport
 from .paths import PROJECT_CONFIG, find_project_root, require_project_root
+from .patching.generator import generate_patch_for_issue, write_patch_bundle
+from .gates.runner import run_gates, write_gate_report
 from .schemas import validate_all_schemas
 from .trajectories.builder import build_trajectory
 
@@ -61,6 +64,18 @@ def build_parser() -> argparse.ArgumentParser:
     eval_subparsers.add_parser("list", help="List drafted eval examples.")
     eval_show = eval_subparsers.add_parser("show", help="Show one drafted eval example.")
     eval_show.add_argument("eval_id")
+
+    propose = subparsers.add_parser("propose", help="Draft a local patch bundle for an issue.")
+    propose.add_argument("issue_id")
+
+    patches = subparsers.add_parser("patches", help="Inspect drafted patch bundles.")
+    patch_subparsers = patches.add_subparsers(dest="patch_command", required=True)
+    patch_subparsers.add_parser("list", help="List drafted patch bundles.")
+    patch_show = patch_subparsers.add_parser("show", help="Show one drafted patch bundle.")
+    patch_show.add_argument("patch_id")
+
+    gate = subparsers.add_parser("gate", help="Run local acceptance gates for a patch bundle.")
+    gate.add_argument("patch_id")
 
     schemas = subparsers.add_parser("schemas", help="Schema utilities.")
     schema_subparsers = schemas.add_subparsers(dest="schema_command", required=True)
@@ -318,6 +333,106 @@ def command_evals_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_propose(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        issue_payload = store.get_issue(args.issue_id)
+        if issue_payload is None:
+            print(f"error: issue not found: {args.issue_id}", file=sys.stderr)
+            return 1
+        evals = store.list_evals_for_issue(args.issue_id)
+        patch = generate_patch_for_issue(
+            root,
+            Issue.from_dict(issue_payload),
+            [str(eval_example["eval_id"]) for eval_example in evals],
+        )
+        if patch is None:
+            print(f"error: no grounded patch available for {args.issue_id}", file=sys.stderr)
+            return 1
+        paths = write_patch_bundle(root, patch)
+        store.upsert_patch_bundle(patch.to_dict())
+    finally:
+        store.close()
+
+    print(f"Drafted patch {patch.patch_id}")
+    print(f"  issue: {patch.issue_id}")
+    print(f"  status: {patch.status}")
+    print(f"  bundle: {paths['json'].relative_to(root)}")
+    print(f"  diff: {paths['diff'].relative_to(root)}")
+    return 0
+
+
+def command_patches_list(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        patches = store.list_patch_bundles()
+    finally:
+        store.close()
+
+    if not patches:
+        print("No patches found.")
+        return 0
+
+    for patch in patches:
+        print(
+            f"{patch['patch_id']}  {patch['status']:7}  issue={patch['issue_id']}  "
+            f"evals={','.join(patch.get('new_eval_ids') or [])}"
+        )
+    return 0
+
+
+def command_patches_show(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        patch_payload = store.get_patch_bundle(args.patch_id)
+        gate_payload = store.get_gate_report_for_patch(args.patch_id)
+    finally:
+        store.close()
+
+    if patch_payload is None:
+        print(f"error: patch not found: {args.patch_id}", file=sys.stderr)
+        return 1
+
+    print(_patch_detail(PatchBundle.from_dict(patch_payload), gate_payload))
+    return 0
+
+
+def command_gate(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        patch_payload = store.get_patch_bundle(args.patch_id)
+        if patch_payload is None:
+            print(f"error: patch not found: {args.patch_id}", file=sys.stderr)
+            return 1
+        patch = PatchBundle.from_dict(patch_payload)
+        issue = store.get_issue(patch.issue_id)
+        if issue is None:
+            print(f"error: issue not found for patch: {patch.issue_id}", file=sys.stderr)
+            return 1
+        evals = store.list_evals_for_issue(patch.issue_id)
+        validations = store.list_validations_for_issue(patch.issue_id)
+        report = run_gates(patch, issue, evals, validations)
+        report_path = write_gate_report(root, report)
+        patch_status = "gated" if report.status in {"pass", "warn", "needs_human_review"} else "rejected"
+        store.upsert_patch_bundle(replace(patch, status=patch_status).to_dict())
+        store.upsert_gate_report(report.to_dict())
+    finally:
+        store.close()
+
+    print(f"Gate report {report.gate_report_id}")
+    print(f"  patch: {report.patch_id}")
+    print(f"  status: {report.status}")
+    print(f"  recommendation: {report.recommendation}")
+    print(f"  report: {report_path.relative_to(root)}")
+    for suite in report.suites:
+        print(f"  {suite['status']:6} {suite['name']}")
+    return 0 if report.status in {"pass", "warn", "needs_human_review"} else 1
+
+
 def _eval_detail(
     eval_example: EvalExample,
     evaluator_payload: dict[str, object] | None,
@@ -379,6 +494,52 @@ def _eval_detail(
     return "\n".join(lines)
 
 
+def _patch_detail(patch: PatchBundle, gate_payload: dict[str, object] | None) -> str:
+    target_lines = "\n".join(
+        f"- `{artifact.get('path')}` ({artifact.get('artifact_type')}, "
+        f"{float(artifact.get('confidence') or 0):.2f})"
+        for artifact in patch.target_artifacts
+    )
+    lines = [
+        f"# {patch.patch_id}",
+        "",
+        f"Status: {patch.status}",
+        f"Issue: {patch.issue_id}",
+        f"Eval coverage: {', '.join(f'`{eval_id}`' for eval_id in patch.new_eval_ids) or 'None'}",
+        "",
+        "## Target Artifacts",
+        "",
+        target_lines,
+        "",
+        "## Risk",
+        "",
+        patch.risk_assessment,
+        "",
+        "## Rollback",
+        "",
+        patch.rollback_plan,
+        "",
+        "## Diff",
+        "",
+        "```diff",
+        patch.diff.rstrip(),
+        "```",
+    ]
+    if gate_payload is not None:
+        gate = GateReport.from_dict(gate_payload)
+        lines.extend(
+            [
+                "",
+                "## Latest Gate",
+                "",
+                f"- ID: `{gate.gate_report_id}`",
+                f"- Status: `{gate.status}`",
+                f"- Recommendation: `{gate.recommendation}`",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def run(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -399,6 +560,14 @@ def run(argv: list[str] | None = None) -> int:
         return command_evals_list(args)
     if args.command == "evals" and args.eval_command == "show":
         return command_evals_show(args)
+    if args.command == "propose":
+        return command_propose(args)
+    if args.command == "patches" and args.patch_command == "list":
+        return command_patches_list(args)
+    if args.command == "patches" and args.patch_command == "show":
+        return command_patches_show(args)
+    if args.command == "gate":
+        return command_gate(args)
     if args.command == "schemas" and args.schema_command == "validate":
         return command_schemas_validate(args)
 

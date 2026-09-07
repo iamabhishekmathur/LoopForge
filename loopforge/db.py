@@ -72,6 +72,23 @@ create table if not exists evaluator_validation_records (
   payload_json text not null,
   foreign key(evaluator_id) references evaluator_definitions(evaluator_id)
 );
+
+create table if not exists patch_bundles (
+  patch_id text primary key,
+  issue_id text not null,
+  status text not null,
+  payload_json text not null,
+  foreign key(issue_id) references issues(issue_id)
+);
+
+create table if not exists gate_reports (
+  gate_report_id text primary key,
+  patch_id text not null,
+  status text not null,
+  recommendation text not null,
+  payload_json text not null,
+  foreign key(patch_id) references patch_bundles(patch_id)
+);
 """
 
 
@@ -283,5 +300,85 @@ class Store:
         row = self.connection.execute(
             "select payload_json from evaluator_validation_records where evaluator_id = ?",
             (evaluator_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def list_validations_for_issue(self, issue_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            select v.payload_json
+            from evaluator_validation_records v
+            join evaluator_definitions e on e.evaluator_id = v.evaluator_id
+            where e.issue_id = ?
+            order by v.evaluator_id
+            """,
+            (issue_id,),
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def list_evals_for_issue(self, issue_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from eval_examples where issue_id = ? order by eval_id",
+            (issue_id,),
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def upsert_patch_bundle(self, patch: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into patch_bundles(patch_id, issue_id, status, payload_json)
+            values (?, ?, ?, ?)
+            on conflict(patch_id) do update set
+              issue_id=excluded.issue_id,
+              status=excluded.status,
+              payload_json=excluded.payload_json
+            """,
+            (
+                patch["patch_id"],
+                patch["issue_id"],
+                patch["status"],
+                json.dumps(patch, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_patch_bundles(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from patch_bundles order by patch_id"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def get_patch_bundle(self, patch_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from patch_bundles where patch_id = ?",
+            (patch_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def upsert_gate_report(self, report: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into gate_reports(gate_report_id, patch_id, status, recommendation, payload_json)
+            values (?, ?, ?, ?, ?)
+            on conflict(gate_report_id) do update set
+              patch_id=excluded.patch_id,
+              status=excluded.status,
+              recommendation=excluded.recommendation,
+              payload_json=excluded.payload_json
+            """,
+            (
+                report["gate_report_id"],
+                report["patch_id"],
+                report["status"],
+                report["recommendation"],
+                json.dumps(report, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def get_gate_report_for_patch(self, patch_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from gate_reports where patch_id = ? order by gate_report_id desc",
+            (patch_id,),
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None

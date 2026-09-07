@@ -73,3 +73,6 @@ def test_help_includes_discover_and_shadow(tmp_path: Path) -> None:
     assert "discover" in result.stdout
     assert "shadow" in result.stdout
     assert "evals" in result.stdout
+    assert "propose" in result.stdout
+    assert "patches" in result.stdout
+    assert "gate" in result.stdout
