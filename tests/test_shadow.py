@@ -26,7 +26,11 @@ def run_loopforge(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str
 
 def copy_fixture(tmp_path: Path) -> Path:
     fixture_root = tmp_path / "fixtures"
-    shutil.copytree(REPO_ROOT / "fixtures", fixture_root)
+    shutil.copytree(
+        REPO_ROOT / "fixtures",
+        fixture_root,
+        ignore=shutil.ignore_patterns(".loopforge"),
+    )
     return fixture_root / "support-agent"
 
 
@@ -37,6 +41,7 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert "traces: 10" in result.stdout
+    assert "artifacts: 3" in result.stdout
     assert "issues: 1" in result.stdout
 
     report = project_root / ".loopforge" / "issues" / "ISSUE-0001.md"
@@ -45,6 +50,8 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
     assert "ACTION_AUTHORIZATION_ERROR" in report_text
     assert "tr_fail_001" in report_text
     assert "tr_clean_001" not in report_text
+    assert "harness/tools/cancel_subscription.yaml" in report_text
+    assert "harness/permissions.yaml" in report_text
 
     db_path = project_root / ".loopforge" / "db.sqlite"
     with sqlite3.connect(db_path) as connection:
@@ -53,10 +60,14 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
             "select count(*) from trace_trajectories"
         ).fetchone()[0]
         issue_count = connection.execute("select count(*) from issues").fetchone()[0]
+        artifact_count = connection.execute(
+            "select count(*) from harness_artifacts"
+        ).fetchone()[0]
 
     assert trace_count == 10
     assert trajectory_count == 10
     assert issue_count == 1
+    assert artifact_count == 3
 
 
 def test_issues_commands_show_shadow_results(tmp_path: Path) -> None:

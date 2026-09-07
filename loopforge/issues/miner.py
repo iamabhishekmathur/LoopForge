@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from loopforge.models.issue import Issue
+from loopforge.models.harness import HarnessArtifact
 from loopforge.models.trace import Trace
 from loopforge.models.trajectory import TraceTrajectory
 
@@ -10,7 +11,11 @@ from loopforge.models.trajectory import TraceTrajectory
 SIDE_EFFECT_CLASSES = {"write", "money_movement", "external_message", "destructive"}
 
 
-def mine_issues(traces: list[Trace], trajectories: list[TraceTrajectory]) -> list[Issue]:
+def mine_issues(
+    traces: list[Trace],
+    trajectories: list[TraceTrajectory],
+    artifacts: list[HarnessArtifact] | None = None,
+) -> list[Issue]:
     """Mine issue candidates from objective trajectory signals.
 
     This is the local fallback screener. The production screener interface will
@@ -44,6 +49,7 @@ def mine_issues(traces: list[Trace], trajectories: list[TraceTrajectory]) -> lis
         return []
 
     tool_list = sorted(implicated_tools)
+    artifact_links = _artifact_links(tool_list, artifacts or [])
     tool_summary = ", ".join(tool_list) if tool_list else "side-effecting tool"
     confidence = min(0.95, 0.68 + (0.05 * len(evidence_trace_ids)))
     severity = "high" if any(
@@ -75,6 +81,45 @@ def mine_issues(traces: list[Trace], trajectories: list[TraceTrajectory]) -> lis
                 "evidence": sorted(evidence_trace_ids),
             }
         ],
-        metadata={"implicated_tools": tool_list},
+        metadata={"implicated_tools": tool_list, "implicated_artifacts": artifact_links},
     )
     return [issue]
+
+
+def _artifact_links(tool_names: list[str], artifacts: list[HarnessArtifact]) -> list[dict[str, object]]:
+    links: list[dict[str, object]] = []
+    tool_artifacts = {
+        str(artifact.metadata.get("tool_name")): artifact
+        for artifact in artifacts
+        if artifact.artifact_type == "tool_definition" and artifact.metadata.get("tool_name")
+    }
+
+    for tool_name in tool_names:
+        tool_artifact = tool_artifacts.get(tool_name)
+        if tool_artifact:
+            links.append(
+                {
+                    "artifact_id": tool_artifact.artifact_id,
+                    "artifact_type": tool_artifact.artifact_type,
+                    "path": tool_artifact.path,
+                    "confidence": tool_artifact.confidence,
+                    "reason": f"trace calls side-effecting tool `{tool_name}`",
+                }
+            )
+
+    for artifact in artifacts:
+        if artifact.artifact_type != "permission_policy":
+            continue
+        governed_tools = set(str(item) for item in artifact.metadata.get("tools", []))
+        if governed_tools.intersection(tool_names):
+            links.append(
+                {
+                    "artifact_id": artifact.artifact_id,
+                    "artifact_type": artifact.artifact_type,
+                    "path": artifact.path,
+                    "confidence": artifact.confidence,
+                    "reason": "policy governs an implicated side-effecting tool",
+                }
+            )
+
+    return links

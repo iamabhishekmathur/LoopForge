@@ -64,3 +64,11 @@ def test_schemas_validate_command(tmp_path: Path) -> None:
     assert init.returncode == 0
     assert validate.returncode == 0
     assert "trace.schema.json" in validate.stdout
+
+
+def test_help_includes_discover_and_shadow(tmp_path: Path) -> None:
+    result = run_loopforge(["--help"], tmp_path)
+
+    assert result.returncode == 0
+    assert "discover" in result.stdout
+    assert "shadow" in result.stdout

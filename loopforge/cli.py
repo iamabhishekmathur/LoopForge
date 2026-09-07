@@ -11,6 +11,7 @@ from .adapters.jsonl import JsonlTraceAdapter
 from . import __version__
 from .config import InitOptions, configured_trace_path, initialize_project, inspect_project
 from .db import Store
+from .discovery.scanner import discover_harness_artifacts, write_harness_index
 from .issues.miner import mine_issues
 from .issues.report import issue_report_markdown, write_issue_report
 from .models.issue import Issue
@@ -38,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--force", action="store_true", help="Overwrite existing generated files.")
 
     subparsers.add_parser("doctor", help="Check local LoopForge project health.")
+    subparsers.add_parser("discover", help="Discover harness artifacts in this repository.")
 
     shadow = subparsers.add_parser("shadow", help="Run local trace ingestion and issue mining.")
     shadow.add_argument("--last", default="24h", help="Trace window label for this run.")
@@ -113,6 +115,24 @@ def command_schemas_validate(_: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def command_discover(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    artifacts = discover_harness_artifacts(root)
+    index_path = write_harness_index(root, artifacts)
+    store = Store.for_project(root)
+    try:
+        for artifact in artifacts:
+            store.upsert_harness_artifact(artifact.to_dict())
+    finally:
+        store.close()
+
+    print(f"Discovered {len(artifacts)} harness artifacts")
+    print(f"  index: {index_path.relative_to(root)}")
+    for artifact in artifacts:
+        print(f"  {artifact.artifact_type:18} {artifact.confidence:.2f} {artifact.path}")
+    return 0
+
+
 def command_shadow(args: argparse.Namespace) -> int:
     root = require_project_root(Path.cwd())
     trace_path = args.path or configured_trace_path(root)
@@ -125,6 +145,11 @@ def command_shadow(args: argparse.Namespace) -> int:
 
     store = Store.for_project(root)
     try:
+        artifacts = discover_harness_artifacts(root)
+        write_harness_index(root, artifacts)
+        for artifact in artifacts:
+            store.upsert_harness_artifact(artifact.to_dict())
+
         trajectories = []
         for trace in traces:
             trace_dict = trace.to_dict()
@@ -133,7 +158,7 @@ def command_shadow(args: argparse.Namespace) -> int:
             store.upsert_trace(trace_dict)
             store.upsert_trajectory(trajectory.to_dict())
 
-        issues = mine_issues(traces, trajectories)
+        issues = mine_issues(traces, trajectories, artifacts)
         reports = []
         for issue in issues:
             issue_dict = issue.to_dict()
@@ -155,6 +180,7 @@ def command_shadow(args: argparse.Namespace) -> int:
     print(f"Shadow run complete for window {args.last}")
     print(f"  traces: {len(traces)}")
     print(f"  trajectories: {len(trajectories)}")
+    print(f"  artifacts: {len(artifacts)}")
     print(f"  issues: {len(issues)}")
     for report in reports:
         print(f"  report: {report.relative_to(root)}")
@@ -210,6 +236,8 @@ def run(argv: list[str] | None = None) -> int:
         return command_init(args)
     if args.command == "doctor":
         return command_doctor(args)
+    if args.command == "discover":
+        return command_discover(args)
     if args.command == "shadow":
         return command_shadow(args)
     if args.command == "issues" and args.issue_command == "list":

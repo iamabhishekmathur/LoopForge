@@ -111,6 +111,7 @@ Run the CLI from source:
 python -m loopforge --help
 python -m loopforge init
 python -m loopforge doctor
+python -m loopforge discover
 python -m loopforge schemas validate
 ```
 

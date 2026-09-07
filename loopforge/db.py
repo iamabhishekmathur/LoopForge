@@ -38,6 +38,14 @@ create table if not exists issue_events (
   created_at text not null,
   foreign key(issue_id) references issues(issue_id)
 );
+
+create table if not exists harness_artifacts (
+  artifact_id text primary key,
+  artifact_type text not null,
+  path text not null,
+  confidence real not null,
+  payload_json text not null
+);
 """
 
 
@@ -108,6 +116,27 @@ class Store:
         )
         self.connection.commit()
 
+    def upsert_harness_artifact(self, artifact: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into harness_artifacts(artifact_id, artifact_type, path, confidence, payload_json)
+            values (?, ?, ?, ?, ?)
+            on conflict(artifact_id) do update set
+              artifact_type=excluded.artifact_type,
+              path=excluded.path,
+              confidence=excluded.confidence,
+              payload_json=excluded.payload_json
+            """,
+            (
+                artifact["artifact_id"],
+                artifact["artifact_type"],
+                artifact["path"],
+                artifact["confidence"],
+                json.dumps(artifact, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
     def add_issue_event(self, event: dict[str, Any]) -> None:
         self.connection.execute(
             """
@@ -136,3 +165,9 @@ class Store:
             (issue_id,),
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None
+
+    def list_harness_artifacts(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from harness_artifacts order by artifact_type, path"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]

@@ -46,10 +46,10 @@
       "minLength": 1
     },
     "symbol_or_anchor": {
-      "type": "string"
+      "type": ["string", "null"]
     },
     "summary": {
-      "type": "string"
+      "type": ["string", "null"]
     },
     "confidence": {
       "type": "number",
@@ -100,4 +100,3 @@
   },
   "additionalProperties": false
 }
-

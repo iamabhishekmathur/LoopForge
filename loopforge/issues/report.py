@@ -10,6 +10,7 @@ from loopforge.paths import LOCAL_DIR
 
 def issue_report_markdown(issue: Issue) -> str:
     tools = issue.metadata.get("implicated_tools", [])
+    artifacts = issue.metadata.get("implicated_artifacts", [])
     return f"""# {issue.issue_id}: {issue.title}
 
 Status: {issue.status}
@@ -27,6 +28,10 @@ Confidence: {issue.confidence:.2f}
 - Evidence traces: {", ".join(f"`{trace_id}`" for trace_id in issue.evidence_trace_ids)}
 - Implicated tools: {", ".join(f"`{tool}`" for tool in tools) or "Unknown"}
 - Trace observability: `{issue.trace_observability}`
+
+## Codebase Grounding
+
+{_artifact_lines(artifacts)}
 
 ## Root-Cause Hypotheses
 
@@ -66,3 +71,18 @@ def _hypothesis_lines(issue: Issue) -> str:
 
 def _bullet_lines(items: list[str]) -> str:
     return "\n".join(f"- `{item}`" for item in items) if items else "- None"
+
+
+def _artifact_lines(artifacts: object) -> str:
+    if not isinstance(artifacts, list) or not artifacts:
+        return "- No implicated artifacts found in the current harness index."
+    lines = []
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        path = artifact.get("path", "unknown")
+        artifact_type = artifact.get("artifact_type", "unknown")
+        confidence = float(artifact.get("confidence", 0))
+        reason = artifact.get("reason", "linked by issue evidence")
+        lines.append(f"- `{path}` ({artifact_type}, {confidence:.2f}): {reason}")
+    return "\n".join(lines) if lines else "- No implicated artifacts found in the current harness index."
