@@ -10,6 +10,7 @@ from .paths import LOCAL_DIR, PROJECT_CONFIG
 
 DEFAULT_LOCAL_DIRS = [
     "cache",
+    "evals",
     "index",
     "issues",
     "manifests",

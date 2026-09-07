@@ -46,6 +46,32 @@ create table if not exists harness_artifacts (
   confidence real not null,
   payload_json text not null
 );
+
+create table if not exists eval_examples (
+  eval_id text primary key,
+  issue_id text not null,
+  status text not null,
+  payload_json text not null,
+  foreign key(issue_id) references issues(issue_id)
+);
+
+create table if not exists evaluator_definitions (
+  evaluator_id text primary key,
+  eval_id text not null,
+  issue_id text not null,
+  status text not null,
+  payload_json text not null,
+  foreign key(eval_id) references eval_examples(eval_id),
+  foreign key(issue_id) references issues(issue_id)
+);
+
+create table if not exists evaluator_validation_records (
+  evaluator_id text primary key,
+  validation_status text not null,
+  blocking_gate_eligible integer not null,
+  payload_json text not null,
+  foreign key(evaluator_id) references evaluator_definitions(evaluator_id)
+);
 """
 
 
@@ -171,3 +197,91 @@ class Store:
             "select payload_json from harness_artifacts order by artifact_type, path"
         ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
+
+    def upsert_eval_example(self, eval_example: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into eval_examples(eval_id, issue_id, status, payload_json)
+            values (?, ?, ?, ?)
+            on conflict(eval_id) do update set
+              issue_id=excluded.issue_id,
+              status=excluded.status,
+              payload_json=excluded.payload_json
+            """,
+            (
+                eval_example["eval_id"],
+                eval_example["issue_id"],
+                eval_example["status"],
+                json.dumps(eval_example, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def upsert_evaluator_definition(self, evaluator: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into evaluator_definitions(evaluator_id, eval_id, issue_id, status, payload_json)
+            values (?, ?, ?, ?, ?)
+            on conflict(evaluator_id) do update set
+              eval_id=excluded.eval_id,
+              issue_id=excluded.issue_id,
+              status=excluded.status,
+              payload_json=excluded.payload_json
+            """,
+            (
+                evaluator["evaluator_id"],
+                evaluator["eval_id"],
+                evaluator["issue_id"],
+                evaluator["status"],
+                json.dumps(evaluator, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def upsert_evaluator_validation_record(self, validation: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into evaluator_validation_records(
+              evaluator_id, validation_status, blocking_gate_eligible, payload_json
+            )
+            values (?, ?, ?, ?)
+            on conflict(evaluator_id) do update set
+              validation_status=excluded.validation_status,
+              blocking_gate_eligible=excluded.blocking_gate_eligible,
+              payload_json=excluded.payload_json
+            """,
+            (
+                validation["evaluator_id"],
+                validation["validation_status"],
+                1 if validation["blocking_gate_eligible"] else 0,
+                json.dumps(validation, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_eval_examples(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from eval_examples order by eval_id"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def get_eval_example(self, eval_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from eval_examples where eval_id = ?",
+            (eval_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def get_evaluator_for_eval(self, eval_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from evaluator_definitions where eval_id = ?",
+            (eval_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def get_validation_for_evaluator(self, evaluator_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from evaluator_validation_records where evaluator_id = ?",
+            (evaluator_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None

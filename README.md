@@ -68,6 +68,8 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 
 - [Product Spec](docs/product-spec.md)
 - [Engineering Design](docs/engineering-design.md)
+- [Eval Example Schema](schemas/eval-example.schema.json)
+- [Evaluator Definition Schema](schemas/evaluator-definition.schema.json)
 - [Evaluator Validation Schema](schemas/evaluator-validation.schema.json)
 - [Gate Report Schema](schemas/gate-report.schema.json)
 - [Harness Artifact Schema](schemas/harness-artifact.schema.json)
@@ -112,6 +114,7 @@ python -m loopforge --help
 python -m loopforge init
 python -m loopforge doctor
 python -m loopforge discover
+python -m loopforge evals list
 python -m loopforge schemas validate
 ```
 
@@ -122,6 +125,8 @@ cd fixtures/support-agent
 PYTHONPATH=../.. python -m loopforge shadow --last 24h
 PYTHONPATH=../.. python -m loopforge issues list
 PYTHONPATH=../.. python -m loopforge issues show ISSUE-0001
+PYTHONPATH=../.. python -m loopforge evals list
+PYTHONPATH=../.. python -m loopforge evals show EVAL-0001
 ```
 
 Run tests:

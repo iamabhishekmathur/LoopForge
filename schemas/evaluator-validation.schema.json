@@ -92,22 +92,22 @@
       "type": "string"
     },
     "true_positive_rate": {
-      "type": "number",
+      "type": ["number", "null"],
       "minimum": 0,
       "maximum": 1
     },
     "true_negative_rate": {
-      "type": "number",
+      "type": ["number", "null"],
       "minimum": 0,
       "maximum": 1
     },
     "precision": {
-      "type": "number",
+      "type": ["number", "null"],
       "minimum": 0,
       "maximum": 1
     },
     "recall": {
-      "type": "number",
+      "type": ["number", "null"],
       "minimum": 0,
       "maximum": 1
     },
@@ -140,17 +140,17 @@
       "type": "boolean"
     },
     "pass_k_reliability": {
-      "type": "number",
+      "type": ["number", "null"],
       "minimum": 0,
       "maximum": 1
     },
     "pass_at_k_capability": {
-      "type": "number",
+      "type": ["number", "null"],
       "minimum": 0,
       "maximum": 1
     },
     "reset_replay_failure_rate": {
-      "type": "number",
+      "type": ["number", "null"],
       "minimum": 0,
       "maximum": 1
     },

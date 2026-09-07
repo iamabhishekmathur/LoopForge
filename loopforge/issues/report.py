@@ -11,6 +11,7 @@ from loopforge.paths import LOCAL_DIR
 def issue_report_markdown(issue: Issue) -> str:
     tools = issue.metadata.get("implicated_tools", [])
     artifacts = issue.metadata.get("implicated_artifacts", [])
+    eval_artifacts = issue.metadata.get("eval_artifacts", [])
     return f"""# {issue.issue_id}: {issue.title}
 
 Status: {issue.status}
@@ -41,11 +42,14 @@ Confidence: {issue.confidence:.2f}
 
 {_bullet_lines(issue.recommended_patch_layers)}
 
+## Drafted Eval Artifacts
+
+{_eval_artifact_lines(eval_artifacts)}
+
 ## Next Action
 
-Draft an eval that forbids the implicated side-effecting tool call before an
-approval or confirmation span, then validate that evaluator before it can become
-a blocking gate.
+Review the drafted eval and evaluator validation record. Use the evaluator as a
+blocking gate only when validation status, sample size, and team policy allow it.
 """
 
 
@@ -86,3 +90,17 @@ def _artifact_lines(artifacts: object) -> str:
         reason = artifact.get("reason", "linked by issue evidence")
         lines.append(f"- `{path}` ({artifact_type}, {confidence:.2f}): {reason}")
     return "\n".join(lines) if lines else "- No implicated artifacts found in the current harness index."
+
+
+def _eval_artifact_lines(eval_artifacts: object) -> str:
+    if not isinstance(eval_artifacts, list) or not eval_artifacts:
+        return "- No eval artifacts have been drafted yet."
+    lines = []
+    for artifact in eval_artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        kind = artifact.get("kind", "artifact")
+        path = artifact.get("path", "unknown")
+        status = artifact.get("status", "unknown")
+        lines.append(f"- `{kind}`: `{path}` ({status})")
+    return "\n".join(lines) if lines else "- No eval artifacts have been drafted yet."
