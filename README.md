@@ -71,9 +71,11 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Evaluator Validation Schema](schemas/evaluator-validation.schema.json)
 - [Gate Report Schema](schemas/gate-report.schema.json)
 - [Harness Artifact Schema](schemas/harness-artifact.schema.json)
+- [Issue Event Schema](schemas/issue-event.schema.json)
 - [Issue Schema](schemas/issue.schema.json)
 - [Runtime Harness Manifest Schema](schemas/runtime-harness-manifest.schema.json)
 - [Trace Schema](schemas/trace.schema.json)
+- [Trace Trajectory Schema](schemas/trace-trajectory.schema.json)
 
 ## MVP Wedge
 
@@ -110,6 +112,15 @@ python -m loopforge --help
 python -m loopforge init
 python -m loopforge doctor
 python -m loopforge schemas validate
+```
+
+Run the fixture-backed shadow loop:
+
+```bash
+cd fixtures/support-agent
+PYTHONPATH=../.. python -m loopforge shadow --last 24h
+PYTHONPATH=../.. python -m loopforge issues list
+PYTHONPATH=../.. python -m loopforge issues show ISSUE-0001
 ```
 
 Run tests:

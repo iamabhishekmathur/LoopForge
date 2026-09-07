@@ -1,0 +1,9 @@
+version: 1
+project:
+  name: support-agent
+
+traces:
+  sources:
+    - id: support-agent-jsonl
+      type: jsonl
+      path: ../traces/support-agent-cancellation.jsonl

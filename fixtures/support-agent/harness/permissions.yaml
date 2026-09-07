@@ -1,0 +1,3 @@
+tools:
+  cancel_subscription:
+    requires_confirmation: true
