@@ -76,6 +76,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Issue Event Schema](schemas/issue-event.schema.json)
 - [Issue Schema](schemas/issue.schema.json)
 - [Patch Bundle Schema](schemas/patch-bundle.schema.json)
+- [PR Artifact Schema](schemas/pr-artifact.schema.json)
 - [Runtime Harness Manifest Schema](schemas/runtime-harness-manifest.schema.json)
 - [Trace Schema](schemas/trace.schema.json)
 - [Trace Trajectory Schema](schemas/trace-trajectory.schema.json)
@@ -119,6 +120,7 @@ python -m loopforge evals list
 python -m loopforge propose ISSUE-0001
 python -m loopforge patches list
 python -m loopforge gate PATCH-0001
+python -m loopforge pr --dry-run PATCH-0001
 python -m loopforge schemas validate
 ```
 
@@ -134,6 +136,7 @@ PYTHONPATH=../.. python -m loopforge evals show EVAL-0001
 PYTHONPATH=../.. python -m loopforge propose ISSUE-0001
 PYTHONPATH=../.. python -m loopforge patches show PATCH-0001
 PYTHONPATH=../.. python -m loopforge gate PATCH-0001
+PYTHONPATH=../.. python -m loopforge pr --dry-run PATCH-0001
 ```
 
 Run tests:

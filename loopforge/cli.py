@@ -21,8 +21,10 @@ from .issues.report import issue_report_markdown, write_issue_report
 from .models.eval import EvalExample, EvaluatorDefinition, EvaluatorValidationRecord
 from .models.issue import Issue
 from .models.patch import PatchBundle, GateReport
+from .models.pr import PullRequestArtifact
 from .paths import PROJECT_CONFIG, find_project_root, require_project_root
 from .patching.generator import generate_patch_for_issue, write_patch_bundle
+from .prs.generator import generate_pr_artifact, pr_markdown, write_pr_artifact
 from .gates.runner import run_gates, write_gate_report
 from .schemas import validate_all_schemas
 from .trajectories.builder import build_trajectory
@@ -76,6 +78,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     gate = subparsers.add_parser("gate", help="Run local acceptance gates for a patch bundle.")
     gate.add_argument("patch_id")
+
+    pr = subparsers.add_parser("pr", help="Draft a local pull request artifact.")
+    pr.add_argument("--dry-run", action="store_true", help="Write local PR JSON and Markdown only.")
+    pr.add_argument("patch_id", help="Gated patch bundle ID.")
+
+    prs = subparsers.add_parser("prs", help="Inspect drafted pull request artifacts.")
+    pr_subparsers = prs.add_subparsers(dest="pr_command", required=True)
+    pr_subparsers.add_parser("list", help="List drafted pull request artifacts.")
+    pr_show = pr_subparsers.add_parser("show", help="Show one drafted pull request artifact.")
+    pr_show.add_argument("pr_id")
 
     schemas = subparsers.add_parser("schemas", help="Schema utilities.")
     schema_subparsers = schemas.add_subparsers(dest="schema_command", required=True)
@@ -433,6 +445,106 @@ def command_gate(args: argparse.Namespace) -> int:
     return 0 if report.status in {"pass", "warn", "needs_human_review"} else 1
 
 
+def command_pr(args: argparse.Namespace) -> int:
+    if not args.dry_run:
+        print("error: only --dry-run PR artifact generation is implemented", file=sys.stderr)
+        return 2
+
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        patch_payload = store.get_patch_bundle(args.patch_id)
+        if patch_payload is None:
+            print(f"error: patch not found: {args.patch_id}", file=sys.stderr)
+            return 1
+        patch = PatchBundle.from_dict(patch_payload)
+        if patch.status != "gated":
+            print(
+                f"error: patch must pass gates before PR draft: {args.patch_id}",
+                file=sys.stderr,
+            )
+            return 1
+
+        issue_payload = store.get_issue(patch.issue_id)
+        if issue_payload is None:
+            print(f"error: issue not found for patch: {patch.issue_id}", file=sys.stderr)
+            return 1
+
+        gate_payload = store.get_gate_report_for_patch(patch.patch_id)
+        if gate_payload is None:
+            print(f"error: no gate report found for patch: {patch.patch_id}", file=sys.stderr)
+            return 1
+        gate = GateReport.from_dict(gate_payload)
+        if gate.status not in {"pass", "warn", "needs_human_review"}:
+            print(
+                f"error: latest gate is not eligible for PR draft: {gate.status}",
+                file=sys.stderr,
+            )
+            return 1
+
+        evals = store.list_evals_for_issue(patch.issue_id)
+        validations = store.list_validations_for_issue(patch.issue_id)
+        pr = generate_pr_artifact(
+            Issue.from_dict(issue_payload),
+            patch,
+            gate,
+            evals,
+            validations,
+        )
+        paths = write_pr_artifact(root, pr)
+        store.upsert_pr_artifact(pr.to_dict())
+    finally:
+        store.close()
+
+    print(f"Drafted PR artifact {pr.pr_id}")
+    print(f"  patch: {pr.patch_id}")
+    print(f"  branch: {pr.branch_name}")
+    print(f"  markdown: {paths['markdown'].relative_to(root)}")
+    print(f"  json: {paths['json'].relative_to(root)}")
+    return 0
+
+
+def command_prs_list(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        prs = store.list_pr_artifacts()
+    finally:
+        store.close()
+
+    if not prs:
+        print("No PR artifacts found.")
+        return 0
+
+    for pr in prs:
+        print(
+            f"{pr['pr_id']}  {pr['status']:7}  patch={pr['patch_id']}  "
+            f"branch={pr['branch_name']}"
+        )
+    return 0
+
+
+def command_prs_show(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        pr_payload = store.get_pr_artifact(args.pr_id)
+    finally:
+        store.close()
+
+    if pr_payload is None:
+        print(f"error: PR artifact not found: {args.pr_id}", file=sys.stderr)
+        return 1
+
+    pr_path = root / ".loopforge" / "prs" / f"{args.pr_id}.md"
+    if pr_path.exists():
+        print(pr_path.read_text(encoding="utf-8"))
+        return 0
+
+    print(pr_markdown(PullRequestArtifact.from_dict(pr_payload)))
+    return 0
+
+
 def _eval_detail(
     eval_example: EvalExample,
     evaluator_payload: dict[str, object] | None,
@@ -568,6 +680,12 @@ def run(argv: list[str] | None = None) -> int:
         return command_patches_show(args)
     if args.command == "gate":
         return command_gate(args)
+    if args.command == "pr":
+        return command_pr(args)
+    if args.command == "prs" and args.pr_command == "list":
+        return command_prs_list(args)
+    if args.command == "prs" and args.pr_command == "show":
+        return command_prs_show(args)
     if args.command == "schemas" and args.schema_command == "validate":
         return command_schemas_validate(args)
 

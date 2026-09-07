@@ -89,6 +89,16 @@ create table if not exists gate_reports (
   payload_json text not null,
   foreign key(patch_id) references patch_bundles(patch_id)
 );
+
+create table if not exists pr_artifacts (
+  pr_id text primary key,
+  patch_id text not null,
+  issue_id text not null,
+  status text not null,
+  payload_json text not null,
+  foreign key(patch_id) references patch_bundles(patch_id),
+  foreign key(issue_id) references issues(issue_id)
+);
 """
 
 
@@ -380,5 +390,39 @@ class Store:
         row = self.connection.execute(
             "select payload_json from gate_reports where patch_id = ? order by gate_report_id desc",
             (patch_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def upsert_pr_artifact(self, pr_artifact: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into pr_artifacts(pr_id, patch_id, issue_id, status, payload_json)
+            values (?, ?, ?, ?, ?)
+            on conflict(pr_id) do update set
+              patch_id=excluded.patch_id,
+              issue_id=excluded.issue_id,
+              status=excluded.status,
+              payload_json=excluded.payload_json
+            """,
+            (
+                pr_artifact["pr_id"],
+                pr_artifact["patch_id"],
+                pr_artifact["issue_id"],
+                pr_artifact["status"],
+                json.dumps(pr_artifact, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_pr_artifacts(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from pr_artifacts order by pr_id"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def get_pr_artifact(self, pr_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from pr_artifacts where pr_id = ?",
+            (pr_id,),
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None

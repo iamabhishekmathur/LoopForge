@@ -122,8 +122,12 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     propose = run_loopforge(["propose", "ISSUE-0001"], project_root)
     patches_list = run_loopforge(["patches", "list"], project_root)
     patches_show = run_loopforge(["patches", "show", "PATCH-0001"], project_root)
+    premature_pr = run_loopforge(["pr", "--dry-run", "PATCH-0001"], project_root)
     gate = run_loopforge(["gate", "PATCH-0001"], project_root)
     patches_show_after_gate = run_loopforge(["patches", "show", "PATCH-0001"], project_root)
+    pr = run_loopforge(["pr", "--dry-run", "PATCH-0001"], project_root)
+    prs_list = run_loopforge(["prs", "list"], project_root)
+    prs_show = run_loopforge(["prs", "show", "PR-PATCH-0001"], project_root)
 
     assert shadow.returncode == 0
     assert propose.returncode == 0, propose.stderr
@@ -132,6 +136,8 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert "PATCH-0001" in patches_list.stdout
     assert patches_show.returncode == 0
     assert "explicitly confirmed" in patches_show.stdout
+    assert premature_pr.returncode == 1
+    assert "patch must pass gates" in premature_pr.stderr
     assert gate.returncode == 0, gate.stderr
     assert "status: pass" in gate.stdout
     assert "merge_after_human_review" in gate.stdout
@@ -139,7 +145,26 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert "PATCH-0001  gated" in patches_list_after_gate.stdout
     assert patches_show_after_gate.returncode == 0
     assert "Latest Gate" in patches_show_after_gate.stdout
+    assert pr.returncode == 0, pr.stderr
+    assert "Drafted PR artifact PR-PATCH-0001" in pr.stdout
+    assert "loopforge/issue-0001/cancel-subscription" in pr.stdout
+    assert prs_list.returncode == 0
+    assert "PR-PATCH-0001" in prs_list.stdout
+    assert prs_show.returncode == 0
+    assert "Gate Results" in prs_show.stdout
+    assert "Evaluator Validation" in prs_show.stdout
+    assert "requires_human_approval" not in prs_show.stdout
 
     assert (project_root / ".loopforge" / "patches" / "PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "patches" / "PATCH-0001.diff").is_file()
     assert (project_root / ".loopforge" / "reports" / "GATE-PATCH-0001.json").is_file()
+    assert (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.json").is_file()
+    assert (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.md").is_file()
+
+    pr_payload = json.loads(
+        (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert pr_payload["metadata"]["requires_human_approval"] is True
+    assert "GATE-PATCH-0001" in pr_payload["body"] or "Gate Results" in pr_payload["body"]

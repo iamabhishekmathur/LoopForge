@@ -15,6 +15,7 @@ DEFAULT_LOCAL_DIRS = [
     "issues",
     "manifests",
     "patches",
+    "prs",
     "reports",
     "traces",
 ]
