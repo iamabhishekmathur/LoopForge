@@ -98,9 +98,10 @@ loopforge pr --eval-only
 The broader MVP can still support gated behavior-patch PRs:
 
 ```text
-loopforge propose --issue ISSUE_ID
-loopforge gate --patch PATCH_ID
-loopforge pr --patch PATCH_ID
+loopforge propose ISSUE_ID
+loopforge gate PATCH_ID
+loopforge pr --dry-run PATCH_ID
+loopforge pr open PR_ID
 ```
 
 For teams using OpenTelemetry, OpenInference, Langfuse, Phoenix, LangSmith, Braintrust, or custom trace JSON, monitoring and ingestion should be adapter-based.
@@ -121,8 +122,13 @@ python -m loopforge propose ISSUE-0001
 python -m loopforge patches list
 python -m loopforge gate PATCH-0001
 python -m loopforge pr --dry-run PATCH-0001
+python -m loopforge pr open PR-PATCH-0001
 python -m loopforge schemas validate
 ```
+
+Real GitHub PR opening is disabled by default. To enable it, set `open_prs: true`
+and keep `max_prs_per_day` above zero in `loopforge.yaml`; LoopForge will still
+require a clean working tree, a gated patch, and a drafted PR artifact.
 
 Run the fixture-backed shadow loop:
 

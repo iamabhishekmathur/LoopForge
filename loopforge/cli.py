@@ -25,6 +25,7 @@ from .models.pr import PullRequestArtifact
 from .paths import PROJECT_CONFIG, find_project_root, require_project_root
 from .patching.generator import generate_patch_for_issue, write_patch_bundle
 from .prs.generator import generate_pr_artifact, pr_markdown, write_pr_artifact
+from .prs.opener import PrOpenError, open_pull_request
 from .gates.runner import run_gates, write_gate_report
 from .schemas import validate_all_schemas
 from .trajectories.builder import build_trajectory
@@ -79,9 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
     gate = subparsers.add_parser("gate", help="Run local acceptance gates for a patch bundle.")
     gate.add_argument("patch_id")
 
-    pr = subparsers.add_parser("pr", help="Draft a local pull request artifact.")
+    pr = subparsers.add_parser("pr", help="Draft or open pull request artifacts.")
     pr.add_argument("--dry-run", action="store_true", help="Write local PR JSON and Markdown only.")
-    pr.add_argument("patch_id", help="Gated patch bundle ID.")
+    pr.add_argument(
+        "pr_args",
+        nargs="+",
+        help="Use '--dry-run PATCH_ID' or 'open PR_ID'.",
+    )
 
     prs = subparsers.add_parser("prs", help="Inspect drafted pull request artifacts.")
     pr_subparsers = prs.add_subparsers(dest="pr_command", required=True)
@@ -446,21 +451,31 @@ def command_gate(args: argparse.Namespace) -> int:
 
 
 def command_pr(args: argparse.Namespace) -> int:
-    if not args.dry_run:
-        print("error: only --dry-run PR artifact generation is implemented", file=sys.stderr)
-        return 2
+    if args.dry_run:
+        if len(args.pr_args) != 1:
+            print("error: usage is loopforge pr --dry-run PATCH_ID", file=sys.stderr)
+            return 2
+        return command_pr_dry_run(args.pr_args[0])
 
+    if len(args.pr_args) == 2 and args.pr_args[0] == "open":
+        return command_pr_open(args.pr_args[1])
+
+    print("error: usage is loopforge pr --dry-run PATCH_ID or loopforge pr open PR_ID", file=sys.stderr)
+    return 2
+
+
+def command_pr_dry_run(patch_id: str) -> int:
     root = require_project_root(Path.cwd())
     store = Store.for_project(root)
     try:
-        patch_payload = store.get_patch_bundle(args.patch_id)
+        patch_payload = store.get_patch_bundle(patch_id)
         if patch_payload is None:
-            print(f"error: patch not found: {args.patch_id}", file=sys.stderr)
+            print(f"error: patch not found: {patch_id}", file=sys.stderr)
             return 1
         patch = PatchBundle.from_dict(patch_payload)
         if patch.status != "gated":
             print(
-                f"error: patch must pass gates before PR draft: {args.patch_id}",
+                f"error: patch must pass gates before PR draft: {patch_id}",
                 file=sys.stderr,
             )
             return 1
@@ -499,6 +514,53 @@ def command_pr(args: argparse.Namespace) -> int:
     print(f"Drafted PR artifact {pr.pr_id}")
     print(f"  patch: {pr.patch_id}")
     print(f"  branch: {pr.branch_name}")
+    print(f"  markdown: {paths['markdown'].relative_to(root)}")
+    print(f"  json: {paths['json'].relative_to(root)}")
+    return 0
+
+
+def command_pr_open(pr_id: str) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        pr_payload = store.get_pr_artifact(pr_id)
+        if pr_payload is None:
+            print(f"error: PR artifact not found: {pr_id}", file=sys.stderr)
+            return 1
+        pr = PullRequestArtifact.from_dict(pr_payload)
+
+        patch_payload = store.get_patch_bundle(pr.patch_id)
+        if patch_payload is None:
+            print(f"error: patch not found for PR artifact: {pr.patch_id}", file=sys.stderr)
+            return 1
+        patch = PatchBundle.from_dict(patch_payload)
+
+        try:
+            opened = open_pull_request(root, pr, patch)
+        except PrOpenError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
+        opened_pr = replace(
+            pr,
+            status="opened",
+            metadata={
+                **pr.metadata,
+                "dry_run": False,
+                "github_url": opened.url,
+                "base_branch": opened.base_branch,
+                "commit_sha": opened.commit_sha,
+            },
+        )
+        paths = write_pr_artifact(root, opened_pr)
+        store.upsert_pr_artifact(opened_pr.to_dict())
+    finally:
+        store.close()
+
+    print(f"Opened PR artifact {opened_pr.pr_id}")
+    print(f"  url: {opened.url}")
+    print(f"  branch: {opened.branch_name}")
+    print(f"  commit: {opened.commit_sha}")
     print(f"  markdown: {paths['markdown'].relative_to(root)}")
     print(f"  json: {paths['json'].relative_to(root)}")
     return 0

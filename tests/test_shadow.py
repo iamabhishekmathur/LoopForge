@@ -126,6 +126,7 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     gate = run_loopforge(["gate", "PATCH-0001"], project_root)
     patches_show_after_gate = run_loopforge(["patches", "show", "PATCH-0001"], project_root)
     pr = run_loopforge(["pr", "--dry-run", "PATCH-0001"], project_root)
+    pr_open_disabled = run_loopforge(["pr", "open", "PR-PATCH-0001"], project_root)
     prs_list = run_loopforge(["prs", "list"], project_root)
     prs_show = run_loopforge(["prs", "show", "PR-PATCH-0001"], project_root)
 
@@ -148,6 +149,8 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert pr.returncode == 0, pr.stderr
     assert "Drafted PR artifact PR-PATCH-0001" in pr.stdout
     assert "loopforge/issue-0001/cancel-subscription" in pr.stdout
+    assert pr_open_disabled.returncode == 1
+    assert "open_prs is false" in pr_open_disabled.stderr
     assert prs_list.returncode == 0
     assert "PR-PATCH-0001" in prs_list.stdout
     assert prs_show.returncode == 0

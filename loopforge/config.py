@@ -211,3 +211,32 @@ def configured_trace_path(root: Path) -> str:
             value = stripped.split(":", 1)[1].strip()
             return value.strip("\"'")
     return "traces/*.jsonl"
+
+
+def configured_open_prs(root: Path) -> bool:
+    value = _first_scalar_config_value(root, "open_prs")
+    return str(value).lower() == "true"
+
+
+def configured_max_prs_per_day(root: Path) -> int:
+    value = _first_scalar_config_value(root, "max_prs_per_day")
+    if value is None:
+        return 3
+    try:
+        return int(value)
+    except ValueError:
+        return 0
+
+
+def _first_scalar_config_value(root: Path, key: str) -> str | None:
+    config_path = root / PROJECT_CONFIG
+    if not config_path.exists():
+        return None
+
+    prefix = f"{key}:"
+    for raw_line in config_path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if stripped.startswith(prefix):
+            value = stripped.split(":", 1)[1].strip()
+            return value.strip("\"'")
+    return None
