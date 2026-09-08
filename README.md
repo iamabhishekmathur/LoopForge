@@ -71,6 +71,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Eval Example Schema](schemas/eval-example.schema.json)
 - [Evaluator Definition Schema](schemas/evaluator-definition.schema.json)
 - [Evaluator Validation Schema](schemas/evaluator-validation.schema.json)
+- [Failure Diagnosis Schema](schemas/failure-diagnosis.schema.json)
 - [Gate Report Schema](schemas/gate-report.schema.json)
 - [Harness Artifact Schema](schemas/harness-artifact.schema.json)
 - [Issue Event Schema](schemas/issue-event.schema.json)

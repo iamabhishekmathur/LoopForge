@@ -56,6 +56,8 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
     assert "harness/tools/cancel_subscription.yaml" in report_text
     assert "harness/permissions.yaml" in report_text
     assert ".loopforge/evals/EVAL-0001.json" in report_text
+    assert "structured_probabilistic_v1" in report_text
+    assert "Trace scores" in report_text
 
     eval_path = project_root / ".loopforge" / "evals" / "EVAL-0001.json"
     evaluator_path = project_root / ".loopforge" / "evals" / "EVALUATOR-0001.json"
@@ -76,6 +78,11 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
             "select count(*) from trace_trajectories"
         ).fetchone()[0]
         issue_count = connection.execute("select count(*) from issues").fetchone()[0]
+        issue_payload = json.loads(
+            connection.execute(
+                "select payload_json from issues where issue_id = 'ISSUE-0001'"
+            ).fetchone()[0]
+        )
         artifact_count = connection.execute(
             "select count(*) from harness_artifacts"
         ).fetchone()[0]
@@ -93,6 +100,9 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
     assert trace_count == 10
     assert trajectory_count == 10
     assert issue_count == 1
+    assert issue_payload["metadata"]["diagnosis"]["calibration"]["scorer"] == (
+        "structured_probabilistic_v1"
+    )
     assert artifact_count == 3
     assert eval_count == 1
     assert evaluator_count == 1

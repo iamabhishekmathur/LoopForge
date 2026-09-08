@@ -12,6 +12,7 @@ def issue_report_markdown(issue: Issue) -> str:
     tools = issue.metadata.get("implicated_tools", [])
     artifacts = issue.metadata.get("implicated_artifacts", [])
     eval_artifacts = issue.metadata.get("eval_artifacts", [])
+    diagnosis = issue.metadata.get("diagnosis", {})
     return f"""# {issue.issue_id}: {issue.title}
 
 Status: {issue.status}
@@ -37,6 +38,10 @@ Confidence: {issue.confidence:.2f}
 ## Root-Cause Hypotheses
 
 {_hypothesis_lines(issue)}
+
+## Scorer Provenance
+
+{_diagnosis_lines(diagnosis)}
 
 ## Recommended Patch Layers
 
@@ -75,6 +80,26 @@ def _hypothesis_lines(issue: Issue) -> str:
 
 def _bullet_lines(items: list[str]) -> str:
     return "\n".join(f"- `{item}`" for item in items) if items else "- None"
+
+
+def _diagnosis_lines(diagnosis: object) -> str:
+    if not isinstance(diagnosis, dict):
+        return "- No scorer details recorded."
+    calibration = diagnosis.get("calibration", {})
+    trace_scores = diagnosis.get("trace_scores", [])
+    lines = []
+    if isinstance(calibration, dict):
+        lines.append(f"- Scorer: `{calibration.get('scorer', 'unknown')}`")
+        lines.append(f"- Threshold: `{calibration.get('threshold', 'unknown')}`")
+        lines.append(
+            f"- Observable from traces: `{calibration.get('observable_from_traces', False)}`"
+        )
+    if isinstance(trace_scores, list) and trace_scores:
+        lines.append("- Trace scores:")
+        for item in trace_scores[:5]:
+            if isinstance(item, dict):
+                lines.append(f"  - `{item.get('trace_id')}`: `{item.get('score')}`")
+    return "\n".join(lines) if lines else "- No scorer details recorded."
 
 
 def _artifact_lines(artifacts: object) -> str:
