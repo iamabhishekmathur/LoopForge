@@ -18,6 +18,8 @@ Today that loop is usually manual. Engineers inspect traces, guess at prompt or 
 
 LoopForge makes that loop explicit, scheduled, probabilistic, grounded in the codebase, and reviewable.
 
+The key product stance is: draft continuously, release visibly. LoopForge can observe traces, infer recurring issues, draft harness changes, generate evals, and run gates automatically, but every production-facing recommendation should carry trace evidence, codebase grounding, a before/after diff preview, expected outcome, validation plan, rollback plan, and scoped reviewer boundary.
+
 ## Core Promise
 
 Given configured trace sources and a codebase, LoopForge should:
@@ -32,8 +34,11 @@ Given configured trace sources and a codebase, LoopForge should:
 8. Generate and validate regression evals that would have caught the failure.
 9. Run acceptance gates against the patch.
 10. Open a PR with the diff, evidence, eval results, and rollback notes.
+11. Monitor post-merge traces to confirm whether the failure signature decreased.
 
 LoopForge should never silently mutate production behavior.
+
+Refinement scope is explicit: `shadow`, `workflow`, `project`, or `org`. Higher scopes require stronger evidence, stronger gates, and more explicit review.
 
 ## Harness Layers
 
@@ -108,6 +113,7 @@ The broader MVP can still support gated behavior-patch PRs:
 loopforge propose ISSUE_ID
 loopforge propose ISSUE_ID --layer system_prompt
 loopforge refinements list
+loopforge refinements preview OPERATION_ID
 loopforge gate PATCH_ID
 loopforge confirm PATCH_ID --observed-traces 50 --recurring-failures 0
 loopforge confirmations list

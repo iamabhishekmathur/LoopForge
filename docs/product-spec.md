@@ -272,6 +272,27 @@ The refiner should not be a single generic patch generator. It should run compon
 
 LoopForge may observe, diagnose, draft, and simulate continuously. It should not continuously mutate production. Production-facing change remains PR-based and gate-based unless a team explicitly opts into a narrower local apply mode.
 
+### 8.18 Visible Self-Improvement
+
+Self-improvement must be visible enough to earn trust. Every meaningful LoopForge recommendation should answer what the system learned, what it wants to change, why that change is justified, how it will be validated, and how it can be rolled back.
+
+Silent mutation is not acceptable for production-facing harness changes. LoopForge may draft automatically, but it should expose a reviewable harness diff before any accepted patch or PR is created.
+
+### 8.19 Scoped Refinement
+
+Refinement scope should be explicit on every operation:
+
+- `shadow`: observation and draft only.
+- `workflow`: one agent, Skill, workflow, or product surface.
+- `project`: one repository or deployed agent project.
+- `org`: cross-agent or cross-repository policy.
+
+Higher scopes require stronger evidence, more gates, and more explicit review. The default onboarding path should start with `shadow` and `workflow` operations even when the system is capable of broader drafting.
+
+### 8.20 Async And Nonblocking
+
+Monitoring, diagnosis, refinement, gate execution, and post-merge confirmation should never block production agent execution. Long-running improvement work belongs in an async queue with budgets, cancellation, retry, and dead-letter states.
+
 ## 9. Product Surface
 
 ### 9.1 CLI
@@ -291,6 +312,7 @@ loopforge monitor start
 loopforge issues list
 loopforge propose ISSUE-2026-00017
 loopforge refinements list
+loopforge refinements preview OPERATION-2026-00017-a
 loopforge gate PATCH-2026-00017-a
 loopforge confirm PATCH-2026-00017-a --observed-traces 50 --recurring-failures 0
 loopforge confirmations show CONFIRM-PATCH-2026-00017-a
@@ -449,6 +471,21 @@ LoopForge should add a continuous refinement loop that runs after trace monitori
 
 This loop incorporates the strongest lesson from Continual Harness while adapting it to production agent companies: the system should improve from trajectory data continuously, but release trust must remain explicit and reviewable.
 
+### 10.6 Lessons From Recursive Agent Harnesses
+
+Recursive agent harnesses such as Prime Agent show that self-improvement is not only prompt editing. The reusable improvement object can be a memory, supplemental prompt note, Skill, subagent spec, tool contract, context policy, eval, scorer, or workflow artifact.
+
+LoopForge should adopt the useful parts while avoiding the trust pitfalls:
+
+1. Treat harness state as editable state, but keep base system prompts and production artifacts protected behind review.
+2. Use small, evidence-backed refinement operations instead of broad rewrites.
+3. Require every operation to include expected outcome, validation plan, and rollback plan.
+4. Make the diff visible before applying or opening a PR.
+5. Prefer local or workflow-scoped refinements before project-wide or org-wide changes.
+6. Convert repeated delegation patterns into subagent specifications when that is the right fix.
+7. Run automatic refinement asynchronously so trace monitoring and production serving remain decoupled.
+8. Surface a "what LoopForge learned" view so teams can understand the improvement loop without reading raw trace files.
+
 ## 11. Harness Artifact Model
 
 LoopForge should support a recommended layout while adapting to existing repos. It must not assume teams already know where every harness artifact lives.
@@ -543,6 +580,8 @@ The state graph should answer:
 - What harness produced this trace?
 - Which traces motivated this change?
 - Which component changed?
+- What did LoopForge learn from the traces?
+- What exact before/after diff is being proposed?
 - Did the change pass gates?
 - Did humans accept, edit, reject, or revert it?
 - Did production behavior improve after merge?
@@ -558,16 +597,23 @@ Required fields:
 - `operation_type`: `create`, `update`, `delete`, or `noop`
 - `component_type`: prompt, sub-agent, Skill, memory interface, tool, policy, eval, scorer, or harness artifact
 - `artifact_id` and `artifact_path`
+- `scope`: shadow, workflow, project, or org
 - `issue_id` and `patch_id`
 - `source_trace_ids`
 - `source_eval_ids`
 - `confidence`
 - `rationale`
 - `diff_summary`
+- `expected_outcome`
+- `validation_plan`
+- `rollback_plan`
+- `preview_diff`
 - `provenance`
 - `status`: drafted, gated, rejected, merged, or retired
 
 The ledger is a trust primitive. It should let teams audit LoopForge's reasoning, measure recommendation quality, detect patch concentration, and train future refiners from accepted and rejected operations.
+
+Before an operation becomes a patch bundle, the ledger should store a preview diff and an explicit reviewer boundary. For example, a workflow-scoped Skill trigger change may be reviewed by the agent team, while an org-scoped permission policy change should require security review.
 
 ### 11.5 Recommended Layout
 
@@ -707,6 +753,8 @@ Patch candidates should include:
 - Trace evidence.
 - Expected behavior change.
 - Risk assessment.
+- Scope.
+- Human-readable before/after diff preview.
 - New evals.
 - Gate plan.
 - Rollback plan.
@@ -740,6 +788,8 @@ Gates should be stricter than the recommendation engine. The recommendation engi
 | Grounding gate | Patch cites codebase artifacts, trace evidence, and eval cases that support the change. | Blocking |
 | Runtime manifest gate | Trace evidence maps to the actual harness version, prompt hashes, tool schema hashes, and policy hashes used at runtime. | Blocking for behavior patches |
 | Recommendation quality gate | Candidate patch clears confidence, minimality, and risk thresholds before it can become a PR. | Blocking |
+| Expected outcome gate | Patch states the measurable behavior change, validation method, and rollback path. | Blocking |
+| Diff preview gate | Reviewer can inspect before/after changes for every touched harness artifact. | Blocking |
 | Replay gate | Failed traces now pass or improve. | Blocking for targeted issue |
 | Regression gate | Existing core eval suite does not degrade beyond threshold. | Blocking |
 | Safety gate | Safety evals do not regress. | Blocking |
@@ -986,7 +1036,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Runtime harness manifest schema and trace linkage.
 - Runtime manifest emission SDK helpers.
 - Harness state graph sufficient to connect traces, manifests, artifacts, issues, patches, gates, PRs, and refinement operations.
-- Refinement operation ledger with CRUD semantics.
+- Refinement operation ledger with CRUD semantics, scope, expected outcome, validation plan, rollback plan, and preview diff.
 - Confirmation report schema and post-merge effect classification.
 - JSONL trace adapter.
 - OpenTelemetry/OpenInference trace mapping.
@@ -998,6 +1048,8 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - LLM-assisted diagnosis with local redaction.
 - Candidate patch generation for Markdown and YAML harness artifacts.
 - Component-specific refiner passes for prompts, Skills, tools, policies, evals, and memory-interface policies.
+- Subagent-spec recommendations for repeated delegation or specialist-review patterns.
+- Async refiner queue with run budgets, retry, cancellation, and dead-letter status.
 - Patch concentration gate.
 - Eval generation in YAML/JSONL.
 - AI-drafted evaluator generation and validation records.
@@ -1009,6 +1061,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Git patch export.
 - GitHub PR creation.
 - Autonomy ramp from read-only monitoring through gated behavior-patch PRs.
+- Visible "what LoopForge learned" reporting for issues, refinements, patches, and confirmations.
 - Post-merge monitoring for failure-signature recurrence and patch confirmation.
 
 ### 17.2 MVP Excludes

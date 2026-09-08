@@ -312,6 +312,9 @@
 <a class="toc-level-3" href="#8-15-harness-state-is-the-product-object">8.15 Harness State Is The Product Object</a>
 <a class="toc-level-3" href="#8-16-component-specific-refinement">8.16 Component-Specific Refinement</a>
 <a class="toc-level-3" href="#8-17-continuous-drafting-reviewed-release">8.17 Continuous Drafting, Reviewed Release</a>
+<a class="toc-level-3" href="#8-18-visible-self-improvement">8.18 Visible Self-Improvement</a>
+<a class="toc-level-3" href="#8-19-scoped-refinement">8.19 Scoped Refinement</a>
+<a class="toc-level-3" href="#8-20-async-and-nonblocking">8.20 Async And Nonblocking</a>
 <a class="toc-level-2" href="#9-product-surface">9. Product Surface</a>
 <a class="toc-level-3" href="#9-1-cli">9.1 CLI</a>
 <a class="toc-level-3" href="#9-2-monitoring-service">9.2 Monitoring Service</a>
@@ -325,6 +328,7 @@
 <a class="toc-level-3" href="#10-3-new-model-launch-loop">10.3 New Model Launch Loop</a>
 <a class="toc-level-3" href="#10-4-skill-improvement-loop">10.4 Skill Improvement Loop</a>
 <a class="toc-level-3" href="#10-5-continual-harness-refinement-loop">10.5 Continual Harness Refinement Loop</a>
+<a class="toc-level-3" href="#10-6-lessons-from-recursive-agent-harnesses">10.6 Lessons From Recursive Agent Harnesses</a>
 <a class="toc-level-2" href="#11-harness-artifact-model">11. Harness Artifact Model</a>
 <a class="toc-level-3" href="#11-1-codebase-discovery-and-harness-index">11.1 Codebase Discovery And Harness Index</a>
 <a class="toc-level-3" href="#11-2-runtime-harness-manifest">11.2 Runtime Harness Manifest</a>
@@ -638,6 +642,20 @@
 <p>The refiner should not be a single generic patch generator. It should run component-specific passes for prompts, Skills, tools, policies, context, retrieval, memory interfaces, evals, scorers, and agent graphs. Each pass should understand the edit types, risks, and gates appropriate to that component.</p>
 <h3 id="8-17-continuous-drafting-reviewed-release">8.17 Continuous Drafting, Reviewed Release</h3>
 <p>LoopForge may observe, diagnose, draft, and simulate continuously. It should not continuously mutate production. Production-facing change remains PR-based and gate-based unless a team explicitly opts into a narrower local apply mode.</p>
+<h3 id="8-18-visible-self-improvement">8.18 Visible Self-Improvement</h3>
+<p>Self-improvement must be visible enough to earn trust. Every meaningful LoopForge recommendation should answer what the system learned, what it wants to change, why that change is justified, how it will be validated, and how it can be rolled back.</p>
+<p>Silent mutation is not acceptable for production-facing harness changes. LoopForge may draft automatically, but it should expose a reviewable harness diff before any accepted patch or PR is created.</p>
+<h3 id="8-19-scoped-refinement">8.19 Scoped Refinement</h3>
+<p>Refinement scope should be explicit on every operation:</p>
+<ul>
+<li><code>shadow</code>: observation and draft only.</li>
+<li><code>workflow</code>: one agent, Skill, workflow, or product surface.</li>
+<li><code>project</code>: one repository or deployed agent project.</li>
+<li><code>org</code>: cross-agent or cross-repository policy.</li>
+</ul>
+<p>Higher scopes require stronger evidence, more gates, and more explicit review. The default onboarding path should start with <code>shadow</code> and <code>workflow</code> operations even when the system is capable of broader drafting.</p>
+<h3 id="8-20-async-and-nonblocking">8.20 Async And Nonblocking</h3>
+<p>Monitoring, diagnosis, refinement, gate execution, and post-merge confirmation should never block production agent execution. Long-running improvement work belongs in an async queue with budgets, cancellation, retry, and dead-letter states.</p>
 <h2 id="9-product-surface">9. Product Surface</h2>
 <h3 id="9-1-cli">9.1 CLI</h3>
 <p>The CLI is the primary developer experience.</p>
@@ -652,6 +670,7 @@ loopforge monitor start
 loopforge issues list
 loopforge propose ISSUE-2026-00017
 loopforge refinements list
+loopforge refinements preview OPERATION-2026-00017-a
 loopforge gate PATCH-2026-00017-a
 loopforge confirm PATCH-2026-00017-a --observed-traces 50 --recurring-failures 0
 loopforge confirmations show CONFIRM-PATCH-2026-00017-a
@@ -785,6 +804,19 @@ report = lf.gate(patch.id)</code></pre>
 <li>Monitor post-merge traces to determine whether the failure signature actually decreased.</li>
 </ol>
 <p>This loop incorporates the strongest lesson from Continual Harness while adapting it to production agent companies: the system should improve from trajectory data continuously, but release trust must remain explicit and reviewable.</p>
+<h3 id="10-6-lessons-from-recursive-agent-harnesses">10.6 Lessons From Recursive Agent Harnesses</h3>
+<p>Recursive agent harnesses such as Prime Agent show that self-improvement is not only prompt editing. The reusable improvement object can be a memory, supplemental prompt note, Skill, subagent spec, tool contract, context policy, eval, scorer, or workflow artifact.</p>
+<p>LoopForge should adopt the useful parts while avoiding the trust pitfalls:</p>
+<ol>
+<li>Treat harness state as editable state, but keep base system prompts and production artifacts protected behind review.</li>
+<li>Use small, evidence-backed refinement operations instead of broad rewrites.</li>
+<li>Require every operation to include expected outcome, validation plan, and rollback plan.</li>
+<li>Make the diff visible before applying or opening a PR.</li>
+<li>Prefer local or workflow-scoped refinements before project-wide or org-wide changes.</li>
+<li>Convert repeated delegation patterns into subagent specifications when that is the right fix.</li>
+<li>Run automatic refinement asynchronously so trace monitoring and production serving remain decoupled.</li>
+<li>Surface a &quot;what LoopForge learned&quot; view so teams can understand the improvement loop without reading raw trace files.</li>
+</ol>
 <h2 id="11-harness-artifact-model">11. Harness Artifact Model</h2>
 <p>LoopForge should support a recommended layout while adapting to existing repos. It must not assume teams already know where every harness artifact lives.</p>
 <h3 id="11-1-codebase-discovery-and-harness-index">11.1 Codebase Discovery And Harness Index</h3>
@@ -864,6 +896,8 @@ issue -&gt; evidence traces -&gt; suspected artifacts -&gt; candidate patch -&gt
 <li>What harness produced this trace?</li>
 <li>Which traces motivated this change?</li>
 <li>Which component changed?</li>
+<li>What did LoopForge learn from the traces?</li>
+<li>What exact before/after diff is being proposed?</li>
 <li>Did the change pass gates?</li>
 <li>Did humans accept, edit, reject, or revert it?</li>
 <li>Did production behavior improve after merge?</li>
@@ -877,16 +911,22 @@ issue -&gt; evidence traces -&gt; suspected artifacts -&gt; candidate patch -&gt
 <li><code>operation_type</code>: <code>create</code>, <code>update</code>, <code>delete</code>, or <code>noop</code></li>
 <li><code>component_type</code>: prompt, sub-agent, Skill, memory interface, tool, policy, eval, scorer, or harness artifact</li>
 <li><code>artifact_id</code> and <code>artifact_path</code></li>
+<li><code>scope</code>: shadow, workflow, project, or org</li>
 <li><code>issue_id</code> and <code>patch_id</code></li>
 <li><code>source_trace_ids</code></li>
 <li><code>source_eval_ids</code></li>
 <li><code>confidence</code></li>
 <li><code>rationale</code></li>
 <li><code>diff_summary</code></li>
+<li><code>expected_outcome</code></li>
+<li><code>validation_plan</code></li>
+<li><code>rollback_plan</code></li>
+<li><code>preview_diff</code></li>
 <li><code>provenance</code></li>
 <li><code>status</code>: drafted, gated, rejected, merged, or retired</li>
 </ul>
 <p>The ledger is a trust primitive. It should let teams audit LoopForge&#x27;s reasoning, measure recommendation quality, detect patch concentration, and train future refiners from accepted and rejected operations.</p>
+<p>Before an operation becomes a patch bundle, the ledger should store a preview diff and an explicit reviewer boundary. For example, a workflow-scoped Skill trigger change may be reviewed by the agent team, while an org-scoped permission policy change should require security review.</p>
 <h3 id="11-5-recommended-layout">11.5 Recommended Layout</h3>
 <p>Recommended layout:</p>
 <pre><code class="language-text">loopforge.yaml
@@ -1243,6 +1283,8 @@ evals/
 <li>Trace evidence.</li>
 <li>Expected behavior change.</li>
 <li>Risk assessment.</li>
+<li>Scope.</li>
+<li>Human-readable before/after diff preview.</li>
 <li>New evals.</li>
 <li>Gate plan.</li>
 <li>Rollback plan.</li>
@@ -1325,6 +1367,16 @@ evals/
 <tr>
 <td>Recommendation quality gate</td>
 <td>Candidate patch clears confidence, minimality, and risk thresholds before it can become a PR.</td>
+<td>Blocking</td>
+</tr>
+<tr>
+<td>Expected outcome gate</td>
+<td>Patch states the measurable behavior change, validation method, and rollback path.</td>
+<td>Blocking</td>
+</tr>
+<tr>
+<td>Diff preview gate</td>
+<td>Reviewer can inspect before/after changes for every touched harness artifact.</td>
 <td>Blocking</td>
 </tr>
 <tr>
@@ -1623,7 +1675,7 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>Runtime harness manifest schema and trace linkage.</li>
 <li>Runtime manifest emission SDK helpers.</li>
 <li>Harness state graph sufficient to connect traces, manifests, artifacts, issues, patches, gates, PRs, and refinement operations.</li>
-<li>Refinement operation ledger with CRUD semantics.</li>
+<li>Refinement operation ledger with CRUD semantics, scope, expected outcome, validation plan, rollback plan, and preview diff.</li>
 <li>Confirmation report schema and post-merge effect classification.</li>
 <li>JSONL trace adapter.</li>
 <li>OpenTelemetry/OpenInference trace mapping.</li>
@@ -1635,6 +1687,8 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>LLM-assisted diagnosis with local redaction.</li>
 <li>Candidate patch generation for Markdown and YAML harness artifacts.</li>
 <li>Component-specific refiner passes for prompts, Skills, tools, policies, evals, and memory-interface policies.</li>
+<li>Subagent-spec recommendations for repeated delegation or specialist-review patterns.</li>
+<li>Async refiner queue with run budgets, retry, cancellation, and dead-letter status.</li>
 <li>Patch concentration gate.</li>
 <li>Eval generation in YAML/JSONL.</li>
 <li>AI-drafted evaluator generation and validation records.</li>
@@ -1646,6 +1700,7 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>Git patch export.</li>
 <li>GitHub PR creation.</li>
 <li>Autonomy ramp from read-only monitoring through gated behavior-patch PRs.</li>
+<li>Visible &quot;what LoopForge learned&quot; reporting for issues, refinements, patches, and confirmations.</li>
 <li>Post-merge monitoring for failure-signature recurrence and patch confirmation.</li>
 </ul>
 <h3 id="17-2-mvp-excludes">17.2 MVP Excludes</h3>

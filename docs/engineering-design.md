@@ -798,6 +798,17 @@ Inputs:
 - Prior operations and reviewer outcomes.
 - Post-merge confirmation history.
 
+Refinement scope:
+
+| Scope | Meaning | Default release boundary |
+| --- | --- | --- |
+| `shadow` | Observation and draft only. | No PR without explicit promotion. |
+| `workflow` | One agent, Skill, workflow, or product surface. | Team review. |
+| `project` | One repository or deployed agent project. | Maintainer review plus blocking gates. |
+| `org` | Cross-agent or cross-repository policy. | Security, platform, or architecture review. |
+
+The refiner may draft at any scope, but higher scopes require more evidence, stronger gates, and stricter reviewer routing. MVP should default new repositories to `shadow` and `workflow` recommendations during onboarding.
+
 Component-specific refiner passes:
 
 | Pass | Emits operations for | Common operation types | Key gates |
@@ -810,6 +821,7 @@ Component-specific refiner passes:
 | Memory-interface refiner | Memory retrieval and write policy | update, noop | Staleness, relevance, privacy |
 | Eval refiner | Eval cases, scorers, judge definitions | create, update, delete, noop | Evaluator validation |
 | Agent-graph refiner | Sub-agent handoffs and workflow graph | update, noop | Routing replay, regression |
+| Subagent-spec refiner | Reusable specialist roles and delegation contracts | create, update, noop | Routing replay, task completion, reviewer visibility |
 
 Outputs:
 
@@ -817,6 +829,10 @@ Outputs:
 - Operation confidence.
 - Required evals.
 - Gate plan.
+- Expected outcome.
+- Validation plan.
+- Rollback plan.
+- Human-readable diff preview.
 - Abstention reason when no safe operation is justified.
 
 Operation planning rules:
@@ -826,6 +842,33 @@ Operation planning rules:
 - Prefer the narrowest component pass that addresses the root cause.
 - Avoid proposing repeated operations on the same artifact without post-merge confirmation.
 - Require every behavior-changing operation to map to at least one eval and one gate.
+- Require every behavior-changing operation to declare a measurable expected outcome.
+- Prefer a reusable subagent specification when traces show repeated specialist delegation needs rather than a prompt or Skill wording defect.
+
+### 7.5.1 Async Refiner Queue
+
+Refinement should run through a repository-local async queue, even in local MVP mode.
+
+Queue item fields:
+
+- `queue_item_id`
+- `trigger`: monitor_schedule, severity_spike, model_change, manual_request, compaction_like_summary, post_merge_followup
+- `trace_window`
+- `target_scope`
+- `status`: queued, running, canceled, succeeded, failed, dead_lettered
+- `budget`: max wall time, max model calls, max tokens, max candidate operations
+- `attempt_count`
+- `last_error`
+- `created_at`, `started_at`, `finished_at`
+
+Execution rules:
+
+- Never block production agent serving or trace ingestion on refiner completion.
+- Coalesce duplicate queued jobs for the same trace window and artifact set.
+- Allow cancellation before patch generation.
+- Move repeatedly failing jobs to dead-letter status with a visible report.
+- Store partial observations when diagnosis succeeds but patch generation or gates fail.
+- Bound teardown and shutdown behavior; do not synchronously wait on model calls when stopping a monitor.
 
 ### 7.6 Patch Generation
 
@@ -844,6 +887,8 @@ It produces:
 - Eval cases.
 - Gate plan.
 - Explanation.
+- Reviewer-facing before/after preview.
+- Rollback bundle or restore instructions.
 
 Patch generator must not:
 
@@ -851,6 +896,7 @@ Patch generator must not:
 - Expand scope without explicit flag.
 - Include raw sensitive trace data.
 - Add broad prompt instructions when a targeted tool/schema fix is more appropriate.
+- Hide the exact harness mutation behind only a prose summary.
 
 ### 7.7 Gate Running
 
@@ -1136,6 +1182,7 @@ Strategies:
 - `model_launch_patch`: model-specific adaptation.
 - `observability_patch`: improve trace spans or evidence capture before behavior changes.
 - `harness_index_patch`: improve artifact mapping or config hints before behavior changes.
+- `subagent_spec_patch`: add or update a reusable subagent role when repeated traces show a specialist delegation pattern.
 - `refinement_noop`: explicitly decline to change behavior because evidence or safety is insufficient.
 - `patch_concentration_escalation`: recommend deeper architecture, instrumentation, or policy work after repeated ineffective edits.
 - `optimizer_search`: run DSPy/GEPA backend.
@@ -1188,6 +1235,8 @@ Patch must:
 - Avoid broad safety language if narrow policy works.
 - Avoid conflicting with higher-priority artifact rules.
 - Include rollback instructions.
+- Include a before/after diff preview for every harness artifact.
+- Include a measurable expected outcome and validation method.
 
 ## 14. Eval Generator
 
@@ -1353,6 +1402,8 @@ thresholds:
   post_merge_confirmation_rate_min: 0.70
   patch_concentration_alert_count: 3
   side_effect_replay_escape_max: 0
+  diff_preview_required: true
+  expected_outcome_required: true
 ```
 
 ### 15.4 Gate Report Example
@@ -1379,10 +1430,13 @@ trust:
   runtime_manifest_coverage: 0.96
   artifact_grounding_confidence: 0.91
   recommendation_quality_level: gated_patch
+  refinement_scope: workflow
   replay_sandbox: pass
   refinement_operations:
     - refine_2026_00017_a_0001
   patch_concentration: low
+  expected_outcome: "Cancellation side-effect tool calls decrease before explicit user confirmation."
+  validation_plan: "Replay five failing traces and monitor recurrence over the next confirmation window."
 recommendation: merge_after_human_review
 ```
 
@@ -1706,6 +1760,7 @@ loopforge patches list
 loopforge patches show PATCH_ID
 loopforge refinements list
 loopforge refinements show OPERATION_ID
+loopforge refinements preview OPERATION_ID
 loopforge gate PATCH_ID
 loopforge confirm PATCH_ID
 loopforge confirmations list
