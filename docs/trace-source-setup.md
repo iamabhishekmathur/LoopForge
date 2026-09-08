@@ -23,6 +23,7 @@ traces:
 After configuration, the customer runs:
 
 ```bash
+loopforge connectors sample-config langsmith
 loopforge connectors doctor
 loopforge monitor --once --last 24h
 ```
@@ -39,6 +40,17 @@ LoopForge then reads from configured sources, normalizes provider payloads into 
 | Warehouse or analytics DB | BigQuery, Snowflake, Databricks, ClickHouse, Postgres | Scheduled export to JSONL first |
 | Internal app logs | JSON logs, audit logs, support events | Local JSONL adapter |
 | Event stream | Kafka, Kinesis, Pub/Sub | Scheduled export to JSONL first |
+
+The closed-loop paths today are:
+
+| Path | Closed loop? | Notes |
+| --- | --- | --- |
+| `jsonl` local/exported files | Yes | LoopForge can be scheduled after the export job and records sync state. |
+| `langsmith` hosted API | Yes | Uses the run query endpoint with project, limit, timestamp, and cursor settings. |
+| `langfuse` hosted API | Yes | Reads v2 observations and groups them back into LoopForge traces by trace ID. |
+| `braintrust`, `phoenix`, `opentelemetry`, `openinference`, `http` hosted endpoints | Yes, when the endpoint returns supported JSON | LoopForge normalizes provider-shaped payloads and stores sync state. |
+| S3/GCS/Azure Blob direct object listing | Not yet | Use scheduled export to local JSONL or expose an internal HTTP gateway. |
+| Warehouses and event streams | Not yet direct | Use scheduled export to JSONL before LoopForge runs. |
 
 MVP guidance: start with a fixture or JSONL export if live cloud access would slow onboarding. Move to hosted connectors after the first trusted run.
 
@@ -137,6 +149,14 @@ Monitor run MONITOR-...: succeeded traces=N issues=M evals=K validations=K
 
 Use this after the team is comfortable with local/offline behavior.
 
+Print a provider-specific starter block:
+
+```bash
+loopforge connectors sample-config langsmith
+loopforge connectors sample-config langfuse
+loopforge connectors sample-config http
+```
+
 ```yaml
 traces:
   sources:
@@ -145,6 +165,7 @@ traces:
       base_url: https://api.smith.langchain.com
       project: support-agent
       limit: 100
+      pagination: cursor
 ```
 
 Credentials should come from environment variables, not committed config:
@@ -179,6 +200,18 @@ loopforge monitor --once --last 24h
 
 LoopForge writes sync state under `.loopforge/connectors/` so later runs can use high-watermark timestamps or cursors when the provider supports them.
 
+Provider defaults:
+
+| Type | Default path | Default request behavior |
+| --- | --- | --- |
+| `langsmith` | `/runs/query` | POST body includes project, limit, high-watermark timestamp, and cursor when available. |
+| `langfuse` | `/api/public/v2/observations` | GET query includes observation fields, time window, limit, and cursor when available. |
+| `braintrust` | `/v1/traces` | GET with project, time window, limit, and cursor query parameters. |
+| `phoenix` | `/v1/traces` | GET with project, time window, limit, and cursor query parameters. |
+| `opentelemetry` | `/v1/traces` | GET or explicit `url`; supports nested `resourceSpans`/`scopeSpans`. |
+| `openinference` | `/v1/traces` | GET or explicit `url`; supports OpenInference span-kind attributes. |
+| `http` | explicit `url` | GET against the configured URL; cursor pagination is supported when enabled. |
+
 ### Generic HTTP Endpoint
 
 Use this for internal trace APIs that can return JSON payloads.
@@ -189,6 +222,8 @@ traces:
     - id: internal-trace-api
       type: http
       url: https://internal.example.com/agent-traces?project=support-agent&limit=100
+      pagination: cursor
+      max_pages: 5
 ```
 
 The response should be either:
@@ -196,6 +231,13 @@ The response should be either:
 - An array of trace-like objects.
 - An object with `traces`, `runs`, `data`, `results`, `observations`, or `spans`.
 - Already-normalized LoopForge trace objects with `schema_version: "1"`.
+
+For cursor pagination, return a next cursor using one of these fields:
+
+- `next_cursor`
+- `nextCursor`
+- `meta.nextCursor`
+- `pagination.nextCursor`
 
 ## Expected Trace Content
 

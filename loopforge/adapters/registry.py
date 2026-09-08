@@ -114,7 +114,7 @@ def connector_status(source: TraceSourceConfig) -> TraceConnectorStatus:
             source.source_id,
             source.source_type,
             "ready",
-            f"reads local JSONL traces from {path}",
+            f"reads local JSONL traces from {path}; suitable for scheduled exports",
         )
 
     if source.source_type in HOSTED_CONNECTORS:
@@ -123,7 +123,7 @@ def connector_status(source: TraceSourceConfig) -> TraceConnectorStatus:
                 source.source_id,
                 source.source_type,
                 "ready",
-                f"reads recorded provider fixture from {source.settings['fixture_path']}",
+                f"reads recorded provider fixture from {source.settings['fixture_path']}; offline validation only",
             )
         if source.source_type in SUPPORTED_HOSTED_TYPES and (
             source.settings.get("url") or source.settings.get("base_url")
@@ -141,7 +141,7 @@ def connector_status(source: TraceSourceConfig) -> TraceConnectorStatus:
                 source.source_id,
                 source.source_type,
                 "ready",
-                "fetches hosted trace payloads over HTTP",
+                "fetches hosted trace payloads over HTTP and writes incremental sync state",
                 required_env,
             )
         required_env = HOSTED_CONNECTORS[source.source_type]
@@ -157,7 +157,7 @@ def connector_status(source: TraceSourceConfig) -> TraceConnectorStatus:
             source.source_id,
             source.source_type,
             "setup_only",
-            "connector is recognized but live ingestion is not implemented yet",
+            "recognized cloud store; use a scheduled JSONL export or HTTP gateway until direct object listing lands",
             required_env,
         )
 

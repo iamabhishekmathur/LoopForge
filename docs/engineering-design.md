@@ -1918,9 +1918,11 @@ Plugins should run with explicit permissions in server mode. In local MVP, permi
 - Canonical JSONL traces.
 - OTLP/OpenTelemetry traces.
 - OpenInference traces.
-- Langfuse export.
+- Langfuse v2 observations grouped into LoopForge traces by provider trace ID.
 - Phoenix export.
-- LangSmith export/API.
+- LangSmith run-query API responses.
+- Generic HTTP trace APIs with optional cursor pagination.
+- Cloud object-store and warehouse exports after a scheduled job writes JSONL.
 - Runtime harness manifests.
 - CSV feedback export.
 
@@ -1956,6 +1958,10 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - Schema validation.
 - Adapter normalization.
 - Scheduler cursor handling.
+- Provider endpoint generation and sample `loopforge.yaml` snippets.
+- Langfuse observation grouping.
+- OpenTelemetry/OpenInference nested resource-span flattening.
+- Generic HTTP cursor pagination.
 - Runtime manifest extraction and trace linkage.
 - Harness artifact discovery confidence.
 - Harness graph relationship inference.

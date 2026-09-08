@@ -151,6 +151,14 @@ loopforge.yaml
 
 Edit `loopforge.yaml` so `traces.sources` points at the customer's observability system. See [Trace Source Setup](docs/trace-source-setup.md) for provider choices, credential guidance, cloud storage paths, expected trace fields, and troubleshooting.
 
+Generate a starter block when the traces live in a known provider:
+
+```bash
+loopforge connectors sample-config langsmith
+loopforge connectors sample-config langfuse
+loopforge connectors sample-config http
+```
+
 Local JSONL traces:
 
 ```yaml
@@ -181,6 +189,7 @@ traces:
       base_url: https://api.smith.langchain.com
       project: support-agent
       limit: 100
+      pagination: cursor
 ```
 
 Use environment variables for hosted credentials, such as `LANGSMITH_API_KEY`, `LANGFUSE_PUBLIC_KEY`, or `BRAINTRUST_API_KEY`.
@@ -270,9 +279,9 @@ loopforge pr open PR_ID
 
 `loopforge monitor --once` writes a queued refiner job after trace ingestion and issue mining. `loopforge queue run-next` processes that job asynchronously and drafts patch/refinement artifacts without blocking trace collection.
 
-Each configured trace source writes local sync state under `.loopforge/connectors`, including high-watermark timestamps and last trace IDs. Hosted adapters can use that state to request incremental windows when the provider API supports `since` or cursor-style parameters.
+Each configured trace source writes local sync state under `.loopforge/connectors`, including high-watermark timestamps and last trace IDs. Hosted adapters can use that state to request incremental windows when the provider API supports timestamp or cursor-style parameters.
 
-For teams using OpenTelemetry, OpenInference, Langfuse, Phoenix, LangSmith, Braintrust, or custom trace JSON, monitoring and ingestion should be adapter-based.
+For teams using OpenTelemetry, OpenInference, Langfuse, Phoenix, LangSmith, Braintrust, or custom trace JSON, monitoring and ingestion should be adapter-based. Direct S3/GCS/warehouse polling is not implemented yet; use a scheduled export into local JSONL or expose an internal HTTP endpoint, then let LoopForge run on a schedule.
 
 For teams using GitHub, PR generation should work out of the box. GitLab and local patch export can follow.
 

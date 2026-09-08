@@ -1679,6 +1679,7 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>Local file-based project.</li>
 <li>SQLite metadata store.</li>
 <li>Automated trace ingestion from configured sources.</li>
+<li>Trace connector sample-config command for LangSmith, Langfuse, Braintrust, Phoenix, OpenTelemetry, OpenInference, generic HTTP, fixtures, and cloud-export JSONL.</li>
 <li>Trace connector sync-state files with high-watermarks, last trace IDs, and cursor slots for incremental hosted ingestion.</li>
 <li>Codebase discovery and semantic harness index.</li>
 <li>Semantic index metadata for artifact tokens, structural anchors, import references, and retrieval text.</li>
@@ -1688,11 +1689,12 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>Refinement operation ledger with CRUD semantics, scope, expected outcome, validation plan, rollback plan, and preview diff.</li>
 <li>Confirmation report schema and post-merge effect classification.</li>
 <li>Refiner queue item schema and local queue commands.</li>
-<li>JSONL trace adapter.</li>
-<li>OpenTelemetry/OpenInference trace mapping.</li>
-<li>Langfuse export adapter.</li>
-<li>Phoenix export adapter.</li>
-<li>LangSmith export/API adapter where API access permits.</li>
+<li>JSONL trace adapter for local files and scheduled cloud exports.</li>
+<li>OpenTelemetry/OpenInference trace mapping, including nested <code>resourceSpans</code>/<code>scopeSpans</code>.</li>
+<li>Langfuse v2 observation adapter that groups observations into LoopForge traces.</li>
+<li>Phoenix export/API adapter where API access returns supported JSON.</li>
+<li>LangSmith run-query API adapter.</li>
+<li>Generic HTTP trace API adapter with cursor pagination.</li>
 <li>Trace-observability-aware failure ontology.</li>
 <li>Probabilistic issue classification and semantic clustering.</li>
 <li>LLM-assisted diagnosis with local redaction.</li>
@@ -1761,6 +1763,12 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>Braintrust export/API.</li>
 <li>Custom adapter SDK.</li>
 </ol>
+<p>Current cloud-path stance:</p>
+<ul>
+<li>Direct hosted observability APIs are closed-loop when configured credentials and provider endpoints return supported JSON.</li>
+<li>Generic internal HTTP trace APIs are closed-loop when they return supported JSON and expose timestamp/cursor filters.</li>
+<li>S3, GCS, Azure Blob, warehouses, and event streams are export-first in the initial product. LoopForge should generate sample config for the exported JSONL path and should not claim direct object-store or warehouse polling until listing, auth, pagination, watermarking, and tests exist.</li>
+</ul>
 <h3 id="19-2-agent-frameworks">19.2 Agent Frameworks</h3>
 <p>LoopForge should not depend on a framework. It should provide optional helpers for:</p>
 <ul>

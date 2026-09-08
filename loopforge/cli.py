@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import __version__
 from .adapters.registry import connector_statuses
+from .adapters.samples import sample_config, sample_config_names
 from .config import InitOptions, SUPPORTED_FRAMEWORKS, initialize_project, inspect_project
 from .confirmation.runner import confirm_patch_outcome, write_confirmation_report
 from .dashboard.render import build_dashboard
@@ -116,6 +117,11 @@ def build_parser() -> argparse.ArgumentParser:
     connector_subparsers = connectors.add_subparsers(dest="connector_command", required=True)
     connector_subparsers.add_parser("list", help="List configured trace connectors.")
     connector_subparsers.add_parser("doctor", help="Validate trace connector readiness.")
+    sample = connector_subparsers.add_parser(
+        "sample-config",
+        help="Print a loopforge.yaml trace source sample.",
+    )
+    sample.add_argument("provider", choices=sample_config_names())
 
     shadow = subparsers.add_parser("shadow", help="Run local trace ingestion and issue mining.")
     shadow.add_argument("--last", default="24h", help="Trace window label for this run.")
@@ -589,6 +595,15 @@ def command_connectors_doctor(_: argparse.Namespace) -> int:
         if not ok:
             failed.append(status)
     return 1 if failed else 0
+
+
+def command_connectors_sample_config(args: argparse.Namespace) -> int:
+    print(sample_config(args.provider).rstrip())
+    if args.provider in {"langsmith", "langfuse", "braintrust"}:
+        print("\n# Put credentials in environment variables, not in loopforge.yaml.")
+    if args.provider in {"s3", "gcs"}:
+        print("\n# This sample assumes a scheduled cloud export writes JSONL files before LoopForge runs.")
+    return 0
 
 
 def command_shadow(args: argparse.Namespace) -> int:
@@ -1696,6 +1711,8 @@ def run(argv: list[str] | None = None) -> int:
         return command_connectors_list(args)
     if args.command == "connectors" and args.connector_command == "doctor":
         return command_connectors_doctor(args)
+    if args.command == "connectors" and args.connector_command == "sample-config":
+        return command_connectors_sample_config(args)
     if args.command == "shadow":
         return command_shadow(args)
     if args.command == "monitor":

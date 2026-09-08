@@ -1039,6 +1039,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Local file-based project.
 - SQLite metadata store.
 - Automated trace ingestion from configured sources.
+- Trace connector sample-config command for LangSmith, Langfuse, Braintrust, Phoenix, OpenTelemetry, OpenInference, generic HTTP, fixtures, and cloud-export JSONL.
 - Trace connector sync-state files with high-watermarks, last trace IDs, and cursor slots for incremental hosted ingestion.
 - Codebase discovery and semantic harness index.
 - Semantic index metadata for artifact tokens, structural anchors, import references, and retrieval text.
@@ -1048,11 +1049,12 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Refinement operation ledger with CRUD semantics, scope, expected outcome, validation plan, rollback plan, and preview diff.
 - Confirmation report schema and post-merge effect classification.
 - Refiner queue item schema and local queue commands.
-- JSONL trace adapter.
-- OpenTelemetry/OpenInference trace mapping.
-- Langfuse export adapter.
-- Phoenix export adapter.
-- LangSmith export/API adapter where API access permits.
+- JSONL trace adapter for local files and scheduled cloud exports.
+- OpenTelemetry/OpenInference trace mapping, including nested `resourceSpans`/`scopeSpans`.
+- Langfuse v2 observation adapter that groups observations into LoopForge traces.
+- Phoenix export/API adapter where API access returns supported JSON.
+- LangSmith run-query API adapter.
+- Generic HTTP trace API adapter with cursor pagination.
 - Trace-observability-aware failure ontology.
 - Probabilistic issue classification and semantic clustering.
 - LLM-assisted diagnosis with local redaction.
@@ -1123,6 +1125,12 @@ Priority order:
 5. JSONL universal trace format.
 6. Braintrust export/API.
 7. Custom adapter SDK.
+
+Current cloud-path stance:
+
+- Direct hosted observability APIs are closed-loop when configured credentials and provider endpoints return supported JSON.
+- Generic internal HTTP trace APIs are closed-loop when they return supported JSON and expose timestamp/cursor filters.
+- S3, GCS, Azure Blob, warehouses, and event streams are export-first in the initial product. LoopForge should generate sample config for the exported JSONL path and should not claim direct object-store or warehouse polling until listing, auth, pagination, watermarking, and tests exist.
 
 ### 19.2 Agent Frameworks
 

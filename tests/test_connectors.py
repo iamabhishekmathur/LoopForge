@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -118,6 +119,17 @@ def test_connectors_cli_shows_fixture_source(tmp_path: Path) -> None:
     assert "ok" in doctor_result.stdout
 
 
+def test_connectors_cli_prints_provider_sample_config(tmp_path: Path) -> None:
+    project_root = copy_fixture(tmp_path)
+
+    result = run_loopforge(["connectors", "sample-config", "langsmith"], project_root)
+
+    assert result.returncode == 0
+    assert "type: langsmith" in result.stdout
+    assert "base_url: https://api.smith.langchain.com" in result.stdout
+    assert "LANGSMITH_API_KEY" not in result.stdout
+
+
 def test_hosted_adapter_normalizes_langsmith_fixture() -> None:
     adapter = HostedTraceAdapter(
         "prod",
@@ -168,11 +180,66 @@ def test_hosted_adapter_endpoint_includes_incremental_state() -> None:
     )
 
     endpoint = adapter._endpoint()
+    body = adapter._request_body()
 
-    assert endpoint.startswith("https://api.example.test/runs?")
-    assert "project=support-agent" in endpoint
-    assert "since=2026-01-01T00%3A00%3A00Z" in endpoint
-    assert "cursor=abc" in endpoint
+    assert endpoint == "https://api.example.test/runs/query"
+    assert adapter._request_method() == "POST"
+    assert body == {
+        "project_name": "support-agent",
+        "start_time_after": "2026-01-01T00:00:00Z",
+        "cursor": "abc",
+    }
+
+
+def test_langfuse_endpoint_uses_observation_api_and_incremental_params() -> None:
+    adapter = HostedTraceAdapter(
+        "prod",
+        "langfuse",
+        {"base_url": "https://cloud.langfuse.com", "limit": "50"},
+        since="2026-01-01T00:00:00Z",
+        cursor="next",
+    )
+
+    endpoint = adapter._endpoint()
+
+    assert endpoint.startswith("https://cloud.langfuse.com/api/public/v2/observations?")
+    assert "fromStartTime=2026-01-01T00%3A00%3A00Z" in endpoint
+    assert "cursor=next" in endpoint
+    assert "fields=core%2Cbasic%2Cio%2Cmetadata%2Cmodel%2Ctrace_context" in endpoint
+
+
+def test_langfuse_v2_observations_are_grouped_into_traces() -> None:
+    payload = {
+        "data": [
+            {
+                "id": "obs-root",
+                "traceId": "trace-1",
+                "name": "agent",
+                "type": "SPAN",
+                "startTime": "2026-09-08T10:00:00Z",
+                "input": {"user": "cancel"},
+                "output": {"answer": "done"},
+            },
+            {
+                "id": "obs-tool",
+                "traceId": "trace-1",
+                "parentObservationId": "obs-root",
+                "name": "cancel_subscription",
+                "type": "TOOL",
+                "startTime": "2026-09-08T10:00:02Z",
+                "metadata": {"side_effect_class": "destructive"},
+            },
+        ]
+    }
+
+    traces = normalize_provider_payload("langfuse", payload, "prod")
+
+    assert len(traces) == 1
+    assert traces[0].trace_id == "prod:trace-1"
+    assert traces[0].inputs == {"user": "cancel"}
+    assert [span.type for span in traces[0].spans] == ["application", "tool_call"]
+    assert traces[0].spans[1].parent_span_id == "obs-root"
+    assert traces[0].spans[1].side_effect_class == "destructive"
 
 
 def test_hosted_adapter_normalizes_langfuse_fixture() -> None:
@@ -214,6 +281,154 @@ def test_hosted_adapter_normalizes_opentelemetry_fixture() -> None:
 
     assert traces[0].trace_id == "prod:otel-trace-1"
     assert traces[0].spans[0].type == "llm_call"
+
+
+def test_hosted_adapter_normalizes_nested_opentelemetry_payload() -> None:
+    payload = {
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": [
+                        {"key": "session.id", "value": {"stringValue": "sess-1"}},
+                    ]
+                },
+                "scopeSpans": [
+                    {
+                        "spans": [
+                            {
+                                "traceId": "otel-trace-2",
+                                "spanId": "span-1",
+                                "name": "agent",
+                                "kind": "INTERNAL",
+                                "startTimeUnixNano": "1788861600000000000",
+                                "attributes": [
+                                    {
+                                        "key": "openinference.span.kind",
+                                        "value": {"stringValue": "LLM"},
+                                    },
+                                    {
+                                        "key": "openinference.input.value",
+                                        "value": {"stringValue": "{\"message\":\"hi\"}"},
+                                    },
+                                ],
+                            },
+                            {
+                                "traceId": "otel-trace-2",
+                                "spanId": "span-2",
+                                "parentSpanId": "span-1",
+                                "name": "lookup_customer",
+                                "kind": "CLIENT",
+                                "startTimeUnixNano": "1788861601000000000",
+                                "attributes": [
+                                    {
+                                        "key": "openinference.span.kind",
+                                        "value": {"stringValue": "TOOL"},
+                                    }
+                                ],
+                            },
+                        ]
+                    }
+                ],
+            }
+        ]
+    }
+
+    traces = normalize_provider_payload("opentelemetry", payload, "prod")
+
+    assert len(traces) == 1
+    assert traces[0].session_id == "sess-1"
+    assert traces[0].inputs == {"message": "hi"}
+    assert [span.type for span in traces[0].spans] == ["llm_call", "tool_call"]
+    assert traces[0].spans[1].parent_span_id == "span-1"
+
+
+def test_hosted_adapter_follows_cursor_pagination(monkeypatch) -> None:
+    calls = []
+    pages = [
+        {"data": [{"id": "trace-1", "timestamp": "2026-01-01T00:00:00Z"}], "meta": {"nextCursor": "cursor-2"}},
+        {"data": [{"id": "trace-2", "timestamp": "2026-01-01T00:01:00Z"}], "meta": {}},
+    ]
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self.payload = payload
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        calls.append(request.full_url)
+        return FakeResponse(pages[len(calls) - 1])
+
+    monkeypatch.setattr("loopforge.adapters.hosted.urlopen", fake_urlopen)
+    adapter = HostedTraceAdapter(
+        "prod",
+        "http",
+        {
+            "url": "https://internal.example.test/traces?limit=1",
+            "pagination": "cursor",
+            "max_pages": "2",
+        },
+    )
+
+    traces = adapter.read(REPO_ROOT)
+
+    assert calls == [
+        "https://internal.example.test/traces?limit=1",
+        "https://internal.example.test/traces?limit=1&cursor=cursor-2",
+    ]
+    assert [trace.source_trace_id for trace in traces] == ["trace-1", "trace-2"]
+
+
+def test_langsmith_pagination_sends_next_cursor_in_post_body(monkeypatch) -> None:
+    bodies = []
+    pages = [
+        {"runs": [{"id": "run-1", "started_at": "2026-01-01T00:00:00Z"}], "nextCursor": "cursor-2"},
+        {"runs": [{"id": "run-2", "started_at": "2026-01-01T00:01:00Z"}]},
+    ]
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self.payload = payload
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        bodies.append(json.loads(request.data.decode("utf-8")))
+        return FakeResponse(pages[len(bodies) - 1])
+
+    monkeypatch.setattr("loopforge.adapters.hosted.urlopen", fake_urlopen)
+    adapter = HostedTraceAdapter(
+        "prod",
+        "langsmith",
+        {
+            "base_url": "https://api.example.test",
+            "project": "support-agent",
+            "pagination": "cursor",
+            "max_pages": "2",
+        },
+    )
+
+    traces = adapter.read(REPO_ROOT)
+
+    assert bodies == [
+        {"project_name": "support-agent"},
+        {"project_name": "support-agent", "cursor": "cursor-2"},
+    ]
+    assert [trace.source_trace_id for trace in traces] == ["run-1", "run-2"]
 
 
 def test_read_traces_can_ingest_hosted_fixture_source(tmp_path: Path) -> None:
