@@ -1138,6 +1138,8 @@ LoopForge should not depend on a framework. It should provide optional helpers f
 - Pydantic AI.
 - Custom HTTP agents.
 
+MVP includes dependency-light runtime metadata examples for LangGraph-style apps and OpenAI Agents SDK-style apps.
+
 ### 19.3 CI
 
 Priority order:

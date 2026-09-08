@@ -236,6 +236,11 @@ GitHub Actions example: [examples/github-action.yml](examples/github-action.yml)
 
 Runtime SDK example: [examples/runtime_sdk.py](examples/runtime_sdk.py).
 
+Framework runtime examples:
+
+- [LangGraph-style runtime metadata](examples/langgraph_runtime.py)
+- [OpenAI Agents SDK-style runtime metadata](examples/openai_agents_runtime.py)
+
 Release checklist: [RELEASE.md](RELEASE.md).
 
 ## Design Principles
