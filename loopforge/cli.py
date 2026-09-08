@@ -26,10 +26,11 @@ from .models.refinement import RefinementOperation
 from .models.runtime import RuntimeHarnessManifest
 from .models.state import HarnessStateSnapshot
 from .paths import PROJECT_CONFIG, find_project_root, require_project_root
-from .patching.generator import generate_patch_for_issue, write_patch_bundle
+from .patching.generator import write_patch_bundle
 from .prs.generator import generate_pr_artifact, pr_markdown, write_pr_artifact
 from .prs.opener import PrOpenError, open_pull_request
-from .refinements.ledger import refinement_operations_for_patch, write_refinement_operations
+from .refinements.ledger import write_refinement_operations
+from .refinements.refiner import refine_issue
 from .gates.runner import run_gates, write_gate_report
 from .replay.runner import run_replay, write_replay_report
 from .schemas import validate_all_schemas
@@ -677,17 +678,18 @@ def command_propose(args: argparse.Namespace) -> int:
             print(f"error: issue not found: {args.issue_id}", file=sys.stderr)
             return 1
         evals = store.list_evals_for_issue(args.issue_id)
-        patch = generate_patch_for_issue(
+        issue = Issue.from_dict(issue_payload)
+        draft = refine_issue(
             root,
-            Issue.from_dict(issue_payload),
+            issue,
             [str(eval_example["eval_id"]) for eval_example in evals],
             preferred_layer=args.layer,
         )
-        if patch is None:
-            print(f"error: no grounded patch available for {args.issue_id}", file=sys.stderr)
+        if draft.patch is None:
+            print(f"error: {draft.reason}", file=sys.stderr)
             return 1
-        issue = Issue.from_dict(issue_payload)
-        operations = refinement_operations_for_patch(issue, patch)
+        patch = draft.patch
+        operations = draft.operations
         paths = write_patch_bundle(root, patch)
         operation_paths = write_refinement_operations(root, operations)
         store.upsert_patch_bundle(patch.to_dict())
@@ -698,6 +700,7 @@ def command_propose(args: argparse.Namespace) -> int:
 
     print(f"Drafted patch {patch.patch_id}")
     print(f"  issue: {patch.issue_id}")
+    print(f"  refiner: {draft.selected_pass}")
     print(f"  status: {patch.status}")
     print(f"  bundle: {paths['json'].relative_to(root)}")
     print(f"  diff: {paths['diff'].relative_to(root)}")

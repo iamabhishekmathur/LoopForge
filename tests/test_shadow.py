@@ -159,6 +159,7 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert shadow.returncode == 0
     assert propose.returncode == 0, propose.stderr
     assert "Drafted patch PATCH-0001" in propose.stdout
+    assert "refiner: tool_refiner" in propose.stdout
     assert "refinements: 1" in propose.stdout
     assert patches_list.returncode == 0
     assert "PATCH-0001" in patches_list.stdout
@@ -223,4 +224,5 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert refinement_payload["component_type"] == "tool"
     assert refinement_payload["patch_id"] == "PATCH-0001"
     assert refinement_payload["status"] == "gated"
+    assert refinement_payload["provenance"]["component_pass"] == "tool_refiner"
     assert refinement_payload["metadata"]["latest_gate_status"] == "pass"

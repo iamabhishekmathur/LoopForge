@@ -9,6 +9,7 @@ from loopforge.evals.generator import generate_eval_for_issue
 from loopforge.issues.miner import mine_issues
 from loopforge.patching.generator import generate_patch_for_issue
 from loopforge.refinements.ledger import refinement_operations_for_patch
+from loopforge.refinements.refiner import refine_issue
 from loopforge.replay.runner import run_replay
 from loopforge.trajectories.builder import build_trajectory
 
@@ -53,8 +54,17 @@ def test_generate_patch_for_grounded_authorization_issue() -> None:
     assert operation.source_trace_ids == issue.evidence_trace_ids
     assert operation.source_eval_ids == ["EVAL-0001"]
     assert operation.provenance["ai_observed"] is True
+    assert operation.provenance["component_pass"] is None
     assert operation.provenance["requires_human_approval"] is True
     assert "additions" in operation.diff_summary
+
+    draft = refine_issue(FIXTURE_ROOT, issue, [eval_example.eval_id])
+    assert draft.status == "drafted"
+    assert draft.selected_pass == "tool_refiner"
+    assert draft.selected_layer == "tool_description"
+    assert draft.patch is not None
+    assert draft.patch.metadata["component_pass"] == "tool_refiner"
+    assert draft.operations[0].provenance["component_pass"] == "tool_refiner"
 
 
 def test_generate_permission_policy_patch_when_requested(tmp_path: Path) -> None:
@@ -90,6 +100,16 @@ def test_generate_permission_policy_patch_when_requested(tmp_path: Path) -> None
     assert patch.target_artifacts[0]["path"] == "harness/permissions.yaml"
     assert "-    requires_confirmation: false" in patch.diff
     assert "+    requires_confirmation: true" in patch.diff
+
+    draft = refine_issue(
+        project_root,
+        issue,
+        [eval_example.eval_id],
+        preferred_layer="permission_policy",
+    )
+    assert draft.patch is not None
+    assert draft.selected_pass == "policy_refiner"
+    assert draft.patch.metadata["component_type"] == "policy"
 
 
 def test_generate_system_prompt_patch_when_requested() -> None:

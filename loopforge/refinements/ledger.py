@@ -41,6 +41,8 @@ def refinement_operations_for_patch(
                     "ai_observed": True,
                     "ai_drafted": True,
                     "generator": "loopforge.patching.generator",
+                    "component_pass": patch.metadata.get("component_pass"),
+                    "component_risk": patch.metadata.get("component_risk"),
                     "patch_strategy": patch.metadata.get("strategy"),
                     "patch_layer": patch.metadata.get("patch_layer"),
                     "requires_human_approval": patch.metadata.get(
