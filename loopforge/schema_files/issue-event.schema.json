@@ -32,7 +32,8 @@
         "ignored",
         "resolved",
         "reopened",
-        "muted"
+        "muted",
+        "reviewer_outcome"
       ]
     },
     "created_at": {

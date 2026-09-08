@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/refiner-queue-item.schema.json",
+  "title": "LoopForge Refiner Queue Item",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "queue_item_id",
+    "trigger",
+    "status",
+    "trace_window",
+    "target_scope",
+    "created_at",
+    "budget",
+    "attempt_count"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "queue_item_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "monitor_schedule",
+        "severity_spike",
+        "model_change",
+        "manual_request",
+        "compaction_like_summary",
+        "post_merge_followup"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "running", "canceled", "succeeded", "failed", "dead_lettered"]
+    },
+    "trace_window": {
+      "type": "string"
+    },
+    "target_scope": {
+      "type": "string",
+      "enum": ["shadow", "workflow", "project", "org"]
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": ["string", "null"]
+    },
+    "finished_at": {
+      "type": ["string", "null"]
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "attempt_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_error": {
+      "type": ["string", "null"]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

@@ -103,6 +103,16 @@
         "patch_concentration": {
           "type": "string",
           "enum": ["low", "high"]
+        },
+        "refinement_scope": {
+          "type": "string",
+          "enum": ["shadow", "workflow", "project", "org"]
+        },
+        "expected_outcome": {
+          "type": "string"
+        },
+        "validation_plan": {
+          "type": "string"
         }
       },
       "additionalProperties": false

@@ -23,6 +23,12 @@ class RefinementOperation:
     diff_summary: str
     provenance: dict[str, Any]
     created_at: str
+    scope: str = "workflow"
+    expected_outcome: str = ""
+    validation_plan: str = ""
+    rollback_plan: str = ""
+    preview_diff: str = ""
+    reviewer_boundary: str = "team_review"
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -43,6 +49,12 @@ class RefinementOperation:
             diff_summary=str(data.get("diff_summary") or ""),
             provenance=dict(data.get("provenance") or {}),
             created_at=str(data["created_at"]),
+            scope=str(data.get("scope") or "workflow"),
+            expected_outcome=str(data.get("expected_outcome") or ""),
+            validation_plan=str(data.get("validation_plan") or ""),
+            rollback_plan=str(data.get("rollback_plan") or ""),
+            preview_diff=str(data.get("preview_diff") or ""),
+            reviewer_boundary=str(data.get("reviewer_boundary") or "team_review"),
             metadata=dict(data.get("metadata") or {}),
         )
 
@@ -64,5 +76,11 @@ class RefinementOperation:
             "diff_summary": self.diff_summary,
             "provenance": self.provenance,
             "created_at": self.created_at,
+            "scope": self.scope,
+            "expected_outcome": self.expected_outcome,
+            "validation_plan": self.validation_plan,
+            "rollback_plan": self.rollback_plan,
+            "preview_diff": self.preview_diff,
+            "reviewer_boundary": self.reviewer_boundary,
             "metadata": self.metadata,
         }

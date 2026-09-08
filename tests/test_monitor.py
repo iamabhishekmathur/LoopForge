@@ -71,13 +71,28 @@ def test_monitor_once_records_run_and_history(tmp_path: Path) -> None:
         row = connection.execute(
             "select run_id, status from monitor_runs"
         ).fetchone()
+        queue_row = connection.execute(
+            "select queue_item_id, status, trigger from refiner_queue"
+        ).fetchone()
     assert row[1] == "succeeded"
+    assert queue_row[1] == "queued"
+    assert queue_row[2] == "monitor_schedule"
 
     list_runs = run_loopforge(["monitor", "--list-runs"], project_root)
     show_run = run_loopforge(["monitor", "--show-run", row[0]], project_root)
+    queue_list = run_loopforge(["queue", "list"], project_root)
+    queue_run = run_loopforge(["queue", "run-next"], project_root)
+    queue_cancel = run_loopforge(["queue", "cancel", queue_row[0]], project_root)
 
     assert list_runs.returncode == 0
     assert row[0] in list_runs.stdout
     assert show_run.returncode == 0
     assert "Status: `succeeded`" in show_run.stdout
     assert "traces: `10`" in show_run.stdout
+    assert queue_list.returncode == 0
+    assert queue_row[0] in queue_list.stdout
+    assert "monitor_schedule" in queue_list.stdout
+    assert queue_run.returncode == 0
+    assert "Status: `succeeded`" in queue_run.stdout
+    assert queue_cancel.returncode == 0
+    assert "Status: `canceled`" in queue_cancel.stdout

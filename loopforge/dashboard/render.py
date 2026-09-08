@@ -34,6 +34,7 @@ def collect_dashboard_data(root: Path) -> dict[str, Any]:
             "gates": store.list_gate_reports(),
             "replays": store.list_replay_reports(),
             "confirmations": store.list_confirmation_reports(),
+            "queue_items": store.list_refiner_queue_items(),
             "prs": store.list_pr_artifacts(),
             "manifests": store.list_runtime_manifests(),
             "states": store.list_harness_states(),
@@ -108,10 +109,11 @@ def render_dashboard(data: dict[str, Any]) -> str:
     {_table("Issues", data.get("issues", []), ["issue_id", "severity", "confidence", "primary_ontology_id", "title"])}
     {_table("Evals", data.get("evals", []), ["eval_id", "status", "issue_id", "primary_ontology_id"])}
     {_table("Patches", data.get("patches", []), ["patch_id", "status", "issue_id", "new_eval_ids"])}
-    {_table("Refinement Operations", data.get("refinements", []), ["operation_id", "status", "operation_type", "component_type", "patch_id"])}
+    {_table("Refinement Operations", data.get("refinements", []), ["operation_id", "status", "scope", "operation_type", "component_type", "patch_id"])}
     {_table("Gates", data.get("gates", []), ["gate_report_id", "status", "recommendation", "patch_id"])}
     {_table("Replay Reports", data.get("replays", []), ["replay_id", "status", "patch_id", "passed_cases", "failed_cases"])}
     {_table("Confirmation Reports", data.get("confirmations", []), ["confirmation_id", "outcome", "patch_id", "recommendation"])}
+    {_table("Refiner Queue", data.get("queue_items", []), ["queue_item_id", "status", "trigger", "target_scope", "trace_window"])}
     {_table("PR Artifacts", data.get("prs", []), ["pr_id", "status", "patch_id", "branch_name"])}
     {_table("Runtime Manifests", data.get("manifests", []), ["manifest_id", "agent_id", "agent_version", "model_name"])}
     {_table("Harness States", data.get("states", []), ["state_id", "source", "confidence", "operation_ids"])}
@@ -130,6 +132,7 @@ def _overview(data: dict[str, Any]) -> str:
         ("Refinements", len(data.get("refinements", []))),
         ("Gates", len(data.get("gates", []))),
         ("Confirmations", len(data.get("confirmations", []))),
+        ("Queue", len(data.get("queue_items", []))),
         ("PRs", len(data.get("prs", []))),
         ("States", len(data.get("states", []))),
     ]

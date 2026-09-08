@@ -152,6 +152,18 @@ create table if not exists harness_states (
   created_at text not null,
   payload_json text not null
 );
+
+create table if not exists refiner_queue (
+  queue_item_id text primary key,
+  trigger text not null,
+  status text not null,
+  trace_window text not null,
+  target_scope text not null,
+  created_at text not null,
+  started_at text,
+  finished_at text,
+  payload_json text not null
+);
 """
 
 
@@ -258,6 +270,12 @@ class Store:
             ),
         )
         self.connection.commit()
+
+    def list_issue_events(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from issue_events order by created_at desc"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
 
     def list_issues(self) -> list[dict[str, Any]]:
         rows = self.connection.execute(
@@ -695,5 +713,61 @@ class Store:
         row = self.connection.execute(
             "select payload_json from harness_states where state_id = ?",
             (state_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def upsert_refiner_queue_item(self, item: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into refiner_queue(
+              queue_item_id, trigger, status, trace_window, target_scope,
+              created_at, started_at, finished_at, payload_json
+            )
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict(queue_item_id) do update set
+              trigger=excluded.trigger,
+              status=excluded.status,
+              trace_window=excluded.trace_window,
+              target_scope=excluded.target_scope,
+              created_at=excluded.created_at,
+              started_at=excluded.started_at,
+              finished_at=excluded.finished_at,
+              payload_json=excluded.payload_json
+            """,
+            (
+                item["queue_item_id"],
+                item["trigger"],
+                item["status"],
+                item["trace_window"],
+                item["target_scope"],
+                item["created_at"],
+                item.get("started_at"),
+                item.get("finished_at"),
+                json.dumps(item, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_refiner_queue_items(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from refiner_queue order by created_at desc"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def get_refiner_queue_item(self, queue_item_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from refiner_queue where queue_item_id = ?",
+            (queue_item_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def get_next_refiner_queue_item(self) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            """
+            select payload_json from refiner_queue
+            where status in ('queued', 'failed')
+            order by created_at
+            limit 1
+            """
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None

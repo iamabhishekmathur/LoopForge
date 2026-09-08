@@ -56,6 +56,7 @@ def test_render_dashboard_escapes_issue_content() -> None:
             "gates": [],
             "replays": [],
             "confirmations": [],
+            "queue_items": [],
             "prs": [],
             "manifests": [],
             "states": [],
@@ -81,4 +82,5 @@ def test_dashboard_build_writes_fixture_html(tmp_path: Path) -> None:
     assert "Monitor Runs" in html
     assert "Refinement Operations" in html
     assert "Confirmation Reports" in html
+    assert "Refiner Queue" in html
     assert "Harness States" in html

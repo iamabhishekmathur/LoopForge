@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+from datetime import UTC, datetime
 import json
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ from .db import Store
 from .discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
 from .issues.report import issue_report_markdown, write_issue_report
+from .learning.report import learned_report_markdown, write_learned_report
 from .models.eval import EvalExample, EvaluatorDefinition, EvaluatorValidationRecord
 from .models.confirmation import ConfirmationReport
 from .models.harness import HarnessArtifact
@@ -24,6 +26,7 @@ from .models.issue import Issue
 from .models.monitor import MonitorRun
 from .models.patch import PatchBundle, GateReport
 from .models.pr import PullRequestArtifact
+from .models.queue import RefinerQueueItem
 from .models.refinement import RefinementOperation
 from .models.runtime import RuntimeHarnessManifest
 from .models.state import HarnessStateSnapshot
@@ -34,6 +37,8 @@ from .prs.opener import PrOpenError, open_pull_request
 from .refinements.ledger import write_refinement_operations
 from .refinements.refiner import refine_issue
 from .gates.runner import run_gates, write_gate_report
+from .queue.runner import cancel_refiner_job, run_next_refiner_job
+from .rollback import apply_patch_rollback, write_rollback_artifact
 from .replay.runner import run_replay, write_replay_report
 from .schemas import validate_all_schemas
 from .monitor.runner import iter_monitor_runs, parse_schedule_seconds
@@ -103,6 +108,15 @@ def build_parser() -> argparse.ArgumentParser:
     monitor.add_argument("--list-runs", action="store_true", help="List persisted monitor runs.")
     monitor.add_argument("--show-run", default=None, help="Show one persisted monitor run.")
 
+    queue = subparsers.add_parser("queue", help="Inspect or run async refinement queue items.")
+    queue_subparsers = queue.add_subparsers(dest="queue_command", required=True)
+    queue_subparsers.add_parser("list", help="List queued refinement work.")
+    queue_subparsers.add_parser("run-next", help="Run the next queued refinement item.")
+    queue_cancel = queue_subparsers.add_parser("cancel", help="Cancel a queued refinement item.")
+    queue_cancel.add_argument("queue_item_id")
+
+    subparsers.add_parser("learned", help="Write a summary of what LoopForge learned.")
+
     issues = subparsers.add_parser("issues", help="Inspect mined issues.")
     issue_subparsers = issues.add_subparsers(dest="issue_command", required=True)
     issue_subparsers.add_parser("list", help="List mined issues.")
@@ -128,6 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
             "context_policy",
             "retrieval_policy",
             "evaluator",
+            "subagent_spec",
         ],
         default=None,
         help="Preferred patch layer.",
@@ -144,6 +159,11 @@ def build_parser() -> argparse.ArgumentParser:
     refinement_subparsers.add_parser("list", help="List drafted refinement operations.")
     refinement_show = refinement_subparsers.add_parser("show", help="Show one refinement operation.")
     refinement_show.add_argument("operation_id")
+    refinement_preview = refinement_subparsers.add_parser(
+        "preview",
+        help="Show the reviewer-facing refinement diff preview.",
+    )
+    refinement_preview.add_argument("operation_id")
 
     gate = subparsers.add_parser("gate", help="Run local acceptance gates for a patch bundle.")
     gate.add_argument("patch_id")
@@ -169,6 +189,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     confirmation_show.add_argument("confirmation_id")
 
+    review = subparsers.add_parser("review", help="Record a human reviewer outcome.")
+    review.add_argument("operation_id")
+    review.add_argument(
+        "outcome",
+        choices=["accepted", "edited", "rejected", "merged", "reverted"],
+    )
+    review.add_argument("--note", default="", help="Reviewer note to persist in the ledger.")
+
     pr = subparsers.add_parser("pr", help="Draft or open pull request artifacts.")
     pr.add_argument("--dry-run", action="store_true", help="Write local PR JSON and Markdown only.")
     pr.add_argument(
@@ -182,6 +210,10 @@ def build_parser() -> argparse.ArgumentParser:
     pr_subparsers.add_parser("list", help="List drafted pull request artifacts.")
     pr_show = pr_subparsers.add_parser("show", help="Show one drafted pull request artifact.")
     pr_show.add_argument("pr_id")
+
+    rollback = subparsers.add_parser("rollback", help="Write a reverse diff for a patch bundle.")
+    rollback.add_argument("patch_id")
+    rollback.add_argument("--apply", action="store_true", help="Apply the reverse patch with git apply.")
 
     schemas = subparsers.add_parser("schemas", help="Schema utilities.")
     schema_subparsers = schemas.add_subparsers(dest="schema_command", required=True)
@@ -558,6 +590,70 @@ def command_monitor_show_run(root: Path, run_id: str) -> int:
     return 0
 
 
+def command_queue_list(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        items = store.list_refiner_queue_items()
+    finally:
+        store.close()
+
+    if not items:
+        print("No refiner queue items found.")
+        return 0
+
+    for item in items:
+        print(
+            f"{item['queue_item_id']}  {item['status']:12}  "
+            f"trigger={item['trigger']}  scope={item['target_scope']}  "
+            f"window={item['trace_window']}"
+        )
+    return 0
+
+
+def command_queue_run_next(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    item = run_next_refiner_job(root)
+    if item is None:
+        print("No queued refinement work found.")
+        return 0
+
+    print(_queue_item_detail(item))
+    return 0 if item.status == "succeeded" else 1
+
+
+def command_queue_cancel(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    item = cancel_refiner_job(root, args.queue_item_id)
+    if item is None:
+        print(f"error: queue item not found: {args.queue_item_id}", file=sys.stderr)
+        return 1
+
+    print(_queue_item_detail(item))
+    return 0
+
+
+def command_learned(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        markdown = learned_report_markdown(
+            issues=store.list_issues(),
+            operations=store.list_refinement_operations(),
+            confirmations=store.list_confirmation_reports(),
+            queue_items=store.list_refiner_queue_items(),
+            issue_events=store.list_issue_events(),
+        )
+        path = write_learned_report(root, markdown)
+    finally:
+        store.close()
+
+    print(markdown)
+    print("")
+    print(f"Wrote learned report: {path.relative_to(root)}")
+    return 0
+
+
 def _monitor_run_summary(run: MonitorRun) -> str:
     counts = run.counts
     summary = (
@@ -593,6 +689,42 @@ def _monitor_run_detail(run: MonitorRun) -> str:
     if isinstance(reports, list) and reports:
         lines.extend(["", "## Reports", ""])
         lines.extend(f"- `{report}`" for report in reports)
+    return "\n".join(lines)
+
+
+def _queue_item_detail(item: RefinerQueueItem) -> str:
+    lines = [
+        f"# {item.queue_item_id}",
+        "",
+        f"Status: `{item.status}`",
+        f"Trigger: `{item.trigger}`",
+        f"Scope: `{item.target_scope}`",
+        f"Trace window: `{item.trace_window}`",
+        f"Attempts: `{item.attempt_count}`",
+        f"Created: `{item.created_at}`",
+    ]
+    if item.started_at:
+        lines.append(f"Started: `{item.started_at}`")
+    if item.finished_at:
+        lines.append(f"Finished: `{item.finished_at}`")
+    if item.last_error:
+        lines.extend(["", "## Error", "", item.last_error])
+    lines.extend(
+        [
+            "",
+            "## Budget",
+            "",
+            "```json",
+            json.dumps(item.budget, indent=2, sort_keys=True),
+            "```",
+            "",
+            "## Metadata",
+            "",
+            "```json",
+            json.dumps(item.metadata, indent=2, sort_keys=True),
+            "```",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -804,6 +936,22 @@ def command_refinements_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_refinements_preview(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        operation_payload = store.get_refinement_operation(args.operation_id)
+    finally:
+        store.close()
+
+    if operation_payload is None:
+        print(f"error: refinement operation not found: {args.operation_id}", file=sys.stderr)
+        return 1
+
+    print(_refinement_preview(RefinementOperation.from_dict(operation_payload)))
+    return 0
+
+
 def command_gate(args: argparse.Namespace) -> int:
     root = require_project_root(Path.cwd())
     store = Store.for_project(root)
@@ -976,6 +1124,52 @@ def command_confirmations_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_review(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        payload = store.get_refinement_operation(args.operation_id)
+        if payload is None:
+            print(f"error: refinement operation not found: {args.operation_id}", file=sys.stderr)
+            return 1
+        operation = RefinementOperation.from_dict(payload)
+        now = datetime.now(UTC).isoformat()
+        updated = replace(
+            operation,
+            status=_operation_status_for_review(operation.status, args.outcome),
+            metadata={
+                **operation.metadata,
+                "latest_reviewer_outcome": args.outcome,
+                "latest_reviewer_note": args.note,
+                "latest_reviewer_outcome_at": now,
+            },
+        )
+        write_refinement_operations(root, [updated])
+        store.upsert_refinement_operation(updated.to_dict())
+        store.add_issue_event(
+            {
+                "schema_version": "1",
+                "event_id": f"EVENT-{operation.operation_id}-{args.outcome}-{now}",
+                "issue_id": operation.issue_id,
+                "event_type": "reviewer_outcome",
+                "created_at": now,
+                "metadata": {
+                    "operation_id": operation.operation_id,
+                    "patch_id": operation.patch_id,
+                    "outcome": args.outcome,
+                    "note": args.note,
+                },
+            }
+        )
+    finally:
+        store.close()
+
+    print(f"Recorded reviewer outcome for {updated.operation_id}")
+    print(f"  outcome: {args.outcome}")
+    print(f"  status: {updated.status}")
+    return 0
+
+
 def command_pr(args: argparse.Namespace) -> int:
     if args.dry_run:
         if len(args.pr_args) != 1:
@@ -1133,6 +1327,41 @@ def command_prs_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_rollback(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        patch_payload = store.get_patch_bundle(args.patch_id)
+        if patch_payload is None:
+            print(f"error: patch not found: {args.patch_id}", file=sys.stderr)
+            return 1
+        patch = PatchBundle.from_dict(patch_payload)
+        path = write_rollback_artifact(root, patch)
+        result = apply_patch_rollback(root, patch) if args.apply else None
+    finally:
+        store.close()
+
+    print(f"Wrote rollback artifact for {patch.patch_id}")
+    print(f"  path: {path.relative_to(root)}")
+    print(f"  plan: {patch.rollback_plan}")
+    if result is not None:
+        if result.returncode != 0:
+            print(result.stderr.strip(), file=sys.stderr)
+            return result.returncode
+        print("  applied: true")
+    return 0
+
+
+def _operation_status_for_review(current_status: str, outcome: str) -> str:
+    if outcome == "rejected":
+        return "rejected"
+    if outcome == "merged":
+        return "merged"
+    if outcome == "reverted":
+        return "retired"
+    return current_status
+
+
 def _eval_detail(
     eval_example: EvalExample,
     evaluator_payload: dict[str, object] | None,
@@ -1247,6 +1476,8 @@ def _refinement_detail(operation: RefinementOperation) -> str:
         f"Status: {operation.status}",
         f"Operation: `{operation.operation_type}`",
         f"Component: `{operation.component_type}`",
+        f"Scope: `{operation.scope}`",
+        f"Reviewer: `{operation.reviewer_boundary}`",
         f"Artifact: `{operation.artifact_path}`",
         f"Issue: `{operation.issue_id}`",
         f"Patch: `{operation.patch_id}`",
@@ -1266,10 +1497,58 @@ def _refinement_detail(operation: RefinementOperation) -> str:
         "",
         operation.diff_summary,
         "",
+        "## Expected Outcome",
+        "",
+        operation.expected_outcome or "Not recorded.",
+        "",
+        "## Validation Plan",
+        "",
+        operation.validation_plan or "Not recorded.",
+        "",
+        "## Rollback Plan",
+        "",
+        operation.rollback_plan or "Not recorded.",
+        "",
         "## Provenance",
         "",
         "```json",
         json.dumps(operation.provenance, indent=2, sort_keys=True),
+        "```",
+    ]
+    return "\n".join(lines)
+
+
+def _refinement_preview(operation: RefinementOperation) -> str:
+    lines = [
+        f"# Preview {operation.operation_id}",
+        "",
+        f"Status: {operation.status}",
+        f"Scope: `{operation.scope}`",
+        f"Reviewer boundary: `{operation.reviewer_boundary}`",
+        f"Artifact: `{operation.artifact_path}`",
+        f"Issue: `{operation.issue_id}`",
+        f"Patch: `{operation.patch_id}`",
+        "",
+        "## Why",
+        "",
+        operation.rationale,
+        "",
+        "## Expected Outcome",
+        "",
+        operation.expected_outcome or "Not recorded.",
+        "",
+        "## Validation Plan",
+        "",
+        operation.validation_plan or "Not recorded.",
+        "",
+        "## Rollback Plan",
+        "",
+        operation.rollback_plan or "Not recorded.",
+        "",
+        "## Diff Preview",
+        "",
+        "```diff",
+        (operation.preview_diff or operation.diff_summary).rstrip(),
         "```",
     ]
     return "\n".join(lines)
@@ -1307,6 +1586,14 @@ def run(argv: list[str] | None = None) -> int:
         return command_shadow(args)
     if args.command == "monitor":
         return command_monitor(args)
+    if args.command == "queue" and args.queue_command == "list":
+        return command_queue_list(args)
+    if args.command == "queue" and args.queue_command == "run-next":
+        return command_queue_run_next(args)
+    if args.command == "queue" and args.queue_command == "cancel":
+        return command_queue_cancel(args)
+    if args.command == "learned":
+        return command_learned(args)
     if args.command == "issues" and args.issue_command == "list":
         return command_issues_list(args)
     if args.command == "issues" and args.issue_command == "show":
@@ -1325,6 +1612,8 @@ def run(argv: list[str] | None = None) -> int:
         return command_refinements_list(args)
     if args.command == "refinements" and args.refinement_command == "show":
         return command_refinements_show(args)
+    if args.command == "refinements" and args.refinement_command == "preview":
+        return command_refinements_preview(args)
     if args.command == "gate":
         return command_gate(args)
     if args.command == "replay":
@@ -1335,12 +1624,16 @@ def run(argv: list[str] | None = None) -> int:
         return command_confirmations_list(args)
     if args.command == "confirmations" and args.confirmation_command == "show":
         return command_confirmations_show(args)
+    if args.command == "review":
+        return command_review(args)
     if args.command == "pr":
         return command_pr(args)
     if args.command == "prs" and args.pr_command == "list":
         return command_prs_list(args)
     if args.command == "prs" and args.pr_command == "show":
         return command_prs_show(args)
+    if args.command == "rollback":
+        return command_rollback(args)
     if args.command == "schemas" and args.schema_command == "validate":
         return command_schemas_validate(args)
 

@@ -32,11 +32,73 @@ def generate_patch_for_issue(
         "evaluator",
     }:
         return _generic_guidance_patch(root, issue, eval_ids, preferred_layer)
+    if preferred_layer == "subagent_spec":
+        return _subagent_spec_patch(issue, eval_ids)
     if preferred_layer == "tool_description" or preferred_layer is None:
         patch = _tool_description_patch(root, issue, eval_ids)
         if patch is not None or preferred_layer == "tool_description":
             return patch
     return _permission_policy_patch(root, issue, eval_ids)
+
+
+def _subagent_spec_patch(
+    issue: Issue,
+    eval_ids: list[str],
+) -> PatchBundle | None:
+    tools = issue.metadata.get("implicated_tools", [])
+    tool = str(tools[0]) if isinstance(tools, list) and tools else "side_effecting_tool"
+    artifact_path = "harness/subagents/side_effect_reviewer.md"
+    content = (
+        "# Side Effect Reviewer\n\n"
+        "Use this subagent when a task may trigger destructive or externally visible "
+        "tool calls.\n\n"
+        "## Responsibilities\n\n"
+        "- Inspect the current user request for explicit authorization.\n"
+        f"- Verify whether `{tool}` is allowed in the current interaction.\n"
+        "- Recommend clarification when confirmation is ambiguous or stale.\n"
+        "- Return the exact evidence supporting allow or block.\n\n"
+        "## Verification\n\n"
+        "The parent agent must not execute the side effect until this review returns "
+        "`allowed: true` with traceable evidence from the current conversation.\n"
+    )
+    diff = _unified_diff(artifact_path, "", content)
+    return PatchBundle(
+        patch_id=f"PATCH-{issue.issue_id.removeprefix('ISSUE-')}",
+        issue_id=issue.issue_id,
+        target_artifacts=[
+            {
+                "artifact_id": "subagent:side_effect_reviewer",
+                "artifact_type": "sub_agent",
+                "path": artifact_path,
+                "confidence": issue.confidence,
+                "sha256": hashlib.sha256(b"").hexdigest(),
+            }
+        ],
+        diff=diff,
+        new_eval_ids=eval_ids,
+        risk_assessment=(
+            "Medium-risk subagent-spec patch. It adds a specialist review boundary "
+            "for side-effecting tool calls and should be wired explicitly by the agent team."
+        ),
+        rollback_plan="Remove the side-effect reviewer subagent spec and keep the generated eval as coverage.",
+        metadata={
+            "strategy": "subagent_spec_patch",
+            "ai_drafted": True,
+            "patch_layer": "subagent_spec",
+            "diagnosis_confidence": issue.confidence,
+            "requires_human_approval": True,
+            "refinement_scope": "workflow",
+            "reviewer_boundary": "agent_architecture_review",
+            "expected_outcome": (
+                "Repeated side-effect authorization checks are routed through a "
+                "specialist review step before tool execution."
+            ),
+            "validation_plan": (
+                "Run side-effect routing evals, replay representative traces, and "
+                "verify the parent agent blocks execution without an allowed review."
+            ),
+        },
+    )
 
 
 def _tool_description_patch(
@@ -87,6 +149,16 @@ def _tool_description_patch(
             "patch_layer": "tool_description",
             "diagnosis_confidence": issue.confidence,
             "requires_human_approval": True,
+            "refinement_scope": "workflow",
+            "reviewer_boundary": "agent_team_review",
+            "expected_outcome": (
+                "The destructive cancellation tool is called only after explicit "
+                "user confirmation in the current interaction."
+            ),
+            "validation_plan": (
+                "Run generated confirmation-before-tool evals, replay the failing "
+                "traces, and monitor recurrence in the post-merge confirmation window."
+            ),
         },
     )
 
@@ -132,6 +204,16 @@ def _permission_policy_patch(
             "patch_layer": "permission_policy",
             "diagnosis_confidence": issue.confidence,
             "requires_human_approval": True,
+            "refinement_scope": "project",
+            "reviewer_boundary": "security_review",
+            "expected_outcome": (
+                "Permission policy blocks the cancellation side effect until explicit "
+                "user confirmation is present."
+            ),
+            "validation_plan": (
+                "Run authorization evals, replay side-effect traces in sandbox mode, "
+                "and require no unauthorized tool escapes."
+            ),
         },
     )
 
@@ -180,6 +262,16 @@ def _generic_guidance_patch(
             "patch_layer": layer,
             "diagnosis_confidence": issue.confidence,
             "requires_human_approval": True,
+            "refinement_scope": "workflow",
+            "reviewer_boundary": "agent_team_review",
+            "expected_outcome": (
+                f"The {layer} artifact prevents the observed authorization failure "
+                "without broad behavior drift."
+            ),
+            "validation_plan": (
+                "Run generated evals, replay representative failures, and compare "
+                "core regression results before PR merge."
+            ),
         },
     )
 

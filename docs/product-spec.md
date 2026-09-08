@@ -313,9 +313,14 @@ loopforge issues list
 loopforge propose ISSUE-2026-00017
 loopforge refinements list
 loopforge refinements preview OPERATION-2026-00017-a
+loopforge queue list
+loopforge queue run-next
 loopforge gate PATCH-2026-00017-a
 loopforge confirm PATCH-2026-00017-a --observed-traces 50 --recurring-failures 0
 loopforge confirmations show CONFIRM-PATCH-2026-00017-a
+loopforge review OPERATION-2026-00017-a merged
+loopforge learned
+loopforge rollback PATCH-2026-00017-a
 loopforge pr PATCH-2026-00017-a
 ```
 
@@ -1038,6 +1043,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Harness state graph sufficient to connect traces, manifests, artifacts, issues, patches, gates, PRs, and refinement operations.
 - Refinement operation ledger with CRUD semantics, scope, expected outcome, validation plan, rollback plan, and preview diff.
 - Confirmation report schema and post-merge effect classification.
+- Refiner queue item schema and local queue commands.
 - JSONL trace adapter.
 - OpenTelemetry/OpenInference trace mapping.
 - Langfuse export adapter.
@@ -1061,6 +1067,8 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Git patch export.
 - GitHub PR creation.
 - Autonomy ramp from read-only monitoring through gated behavior-patch PRs.
+- Reviewer outcome tracking in the refinement ledger and issue event stream.
+- Rollback artifact generation with opt-in reverse patch application.
 - Visible "what LoopForge learned" reporting for issues, refinements, patches, and confirmations.
 - Post-merge monitoring for failure-signature recurrence and patch confirmation.
 

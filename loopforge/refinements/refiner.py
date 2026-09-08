@@ -41,6 +41,7 @@ REFINER_PASSES = [
     ComponentRefinerPass("context_refiner", "policy", "context_policy", "medium"),
     ComponentRefinerPass("retrieval_refiner", "policy", "retrieval_policy", "medium"),
     ComponentRefinerPass("eval_refiner", "eval", "evaluator", "low"),
+    ComponentRefinerPass("subagent_spec_refiner", "sub_agent", "subagent_spec", "medium"),
 ]
 
 

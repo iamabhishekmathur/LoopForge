@@ -18,6 +18,7 @@ DEFAULT_LOCAL_DIRS = [
     "patches",
     "prs",
     "reports",
+    "rollbacks",
     "traces",
 ]
 

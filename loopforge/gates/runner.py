@@ -23,10 +23,13 @@ def run_gates(
     concentration = analyze_patch_concentration(patch, operation_history or [])
     suites = [
         _scope_suite(patch),
+        _refinement_scope_suite(patch, operation_history or []),
         _grounding_suite(patch, issue),
         _artifact_fingerprint_suite(patch),
         _diagnosis_confidence_suite(issue),
         _eval_coverage_suite(patch, evals),
+        _expected_outcome_suite(patch, operation_history or []),
+        _diff_preview_suite(patch, operation_history or []),
         _evaluator_validation_suite(validations),
         _replay_sandbox_suite(patch, replay_report),
         concentration.to_suite(),
@@ -58,6 +61,9 @@ def run_gates(
             "replay_sandbox": replay_report.status,
             "replay_id": replay_report.replay_id,
             "patch_concentration": concentration.level,
+            "refinement_scope": _refinement_scope(patch, operation_history or []),
+            "expected_outcome": _expected_outcome(patch, operation_history or []),
+            "validation_plan": _validation_plan(patch, operation_history or []),
         },
         metadata={
             "ai_drafted": True,
@@ -85,6 +91,41 @@ def _scope_suite(patch: PatchBundle) -> dict[str, object]:
         "status": "pass" if allowed else "reject",
         "score_after": 1.0 if allowed else 0.0,
         "failed_cases": [] if allowed else ["target outside harness/evals allowlist"],
+    }
+
+
+def _refinement_scope_suite(
+    patch: PatchBundle,
+    operations: list[dict[str, object]],
+) -> dict[str, object]:
+    scope = _refinement_scope(patch, operations)
+    reviewer_boundary = str(patch.metadata.get("reviewer_boundary") or "") or _operation_text(
+        operations,
+        patch.patch_id,
+        "reviewer_boundary",
+    )
+    failures = []
+    if scope not in {"shadow", "workflow", "project", "org"}:
+        failures.append(f"unknown refinement scope: {scope}")
+    if scope in {"project", "org"} and not patch.metadata.get("requires_human_approval", True):
+        failures.append(f"{scope} scope requires human approval")
+    if scope == "project" and reviewer_boundary not in {
+        "maintainer_review",
+        "security_review",
+        "agent_architecture_review",
+    }:
+        failures.append("project scope requires maintainer, architecture, or security review")
+    if scope == "org" and reviewer_boundary not in {
+        "platform_security_review",
+        "security_review",
+    }:
+        failures.append("org scope requires platform or security review")
+    passed = not failures
+    return {
+        "name": "refinement_scope",
+        "status": "pass" if passed else "reject",
+        "score_after": 1.0 if passed else 0.0,
+        "failed_cases": failures,
     }
 
 
@@ -151,6 +192,43 @@ def _evaluator_validation_suite(validations: list[dict[str, object]]) -> dict[st
     }
 
 
+def _expected_outcome_suite(
+    patch: PatchBundle,
+    operations: list[dict[str, object]],
+) -> dict[str, object]:
+    expected_outcome = _expected_outcome(patch, operations)
+    validation_plan = _validation_plan(patch, operations)
+    rollback_plan = patch.rollback_plan or _operation_text(operations, patch.patch_id, "rollback_plan")
+    missing = []
+    if not expected_outcome:
+        missing.append("missing expected outcome")
+    if not validation_plan:
+        missing.append("missing validation plan")
+    if not rollback_plan:
+        missing.append("missing rollback plan")
+    passed = not missing
+    return {
+        "name": "expected_outcome",
+        "status": "pass" if passed else "reject",
+        "score_after": 1.0 if passed else 0.0,
+        "failed_cases": missing,
+    }
+
+
+def _diff_preview_suite(
+    patch: PatchBundle,
+    operations: list[dict[str, object]],
+) -> dict[str, object]:
+    preview = patch.diff or _operation_text(operations, patch.patch_id, "preview_diff")
+    passed = bool(preview.strip())
+    return {
+        "name": "diff_preview",
+        "status": "pass" if passed else "reject",
+        "score_after": 1.0 if passed else 0.0,
+        "failed_cases": [] if passed else ["missing reviewer-visible before/after diff"],
+    }
+
+
 def _replay_sandbox_suite(patch: PatchBundle, replay_report: ReplayReport) -> dict[str, object]:
     risky = any(
         artifact.get("artifact_type") == "permission_policy"
@@ -187,3 +265,50 @@ def _diagnosis_confidence(issue: dict[str, object]) -> float:
         if isinstance(diagnosis, dict) and "confidence" in diagnosis:
             return float(diagnosis["confidence"])
     return float(issue.get("confidence") or 0.0)
+
+
+def _operation_text(
+    operations: list[dict[str, object]],
+    patch_id: str,
+    field: str,
+) -> str:
+    for operation in operations:
+        if operation.get("patch_id") != patch_id:
+            continue
+        value = operation.get(field)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
+def _expected_outcome(
+    patch: PatchBundle,
+    operations: list[dict[str, object]],
+) -> str:
+    return str(patch.metadata.get("expected_outcome") or "") or _operation_text(
+        operations,
+        patch.patch_id,
+        "expected_outcome",
+    )
+
+
+def _validation_plan(
+    patch: PatchBundle,
+    operations: list[dict[str, object]],
+) -> str:
+    return str(patch.metadata.get("validation_plan") or "") or _operation_text(
+        operations,
+        patch.patch_id,
+        "validation_plan",
+    )
+
+
+def _refinement_scope(
+    patch: PatchBundle,
+    operations: list[dict[str, object]],
+) -> str:
+    return str(patch.metadata.get("refinement_scope") or "") or _operation_text(
+        operations,
+        patch.patch_id,
+        "scope",
+    ) or "workflow"

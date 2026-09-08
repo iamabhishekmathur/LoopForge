@@ -1749,6 +1749,9 @@ loopforge monitor start
 loopforge monitor stop
 loopforge monitor status
 loopforge monitor once
+loopforge queue list
+loopforge queue run-next
+loopforge queue cancel QUEUE_ITEM_ID
 loopforge ingest
 loopforge redact preview
 loopforge mine
@@ -1765,6 +1768,8 @@ loopforge gate PATCH_ID
 loopforge confirm PATCH_ID
 loopforge confirmations list
 loopforge confirmations show CONFIRMATION_ID
+loopforge review OPERATION_ID merged
+loopforge learned
 loopforge pr PATCH_ID
 loopforge launch simulate
 loopforge eval run
@@ -2061,6 +2066,7 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - Gate report.
 - Trust qualification report.
 - Post-merge confirmation report.
+- Refiner queue item schema.
 - CI-friendly exit codes.
 
 ### Milestone 6: PR Workflow
@@ -2070,6 +2076,8 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - PR body generation.
 - GitHub Action.
 - Refinement operation status updates from gate and review outcomes.
+- Reviewer outcome command and issue events.
+- Rollback diff artifact generation.
 - Post-merge confirmation monitor.
 
 ### Milestone 7: Integrations

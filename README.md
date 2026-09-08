@@ -87,6 +87,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Patch Bundle Schema](schemas/patch-bundle.schema.json)
 - [PR Artifact Schema](schemas/pr-artifact.schema.json)
 - [Refinement Operation Schema](schemas/refinement-operation.schema.json)
+- [Refiner Queue Item Schema](schemas/refiner-queue-item.schema.json)
 - [Replay Report Schema](schemas/replay-report.schema.json)
 - [Runtime Harness Manifest Schema](schemas/runtime-harness-manifest.schema.json)
 - [Trace Schema](schemas/trace.schema.json)
@@ -114,9 +115,14 @@ loopforge propose ISSUE_ID
 loopforge propose ISSUE_ID --layer system_prompt
 loopforge refinements list
 loopforge refinements preview OPERATION_ID
+loopforge queue list
+loopforge queue run-next
 loopforge gate PATCH_ID
 loopforge confirm PATCH_ID --observed-traces 50 --recurring-failures 0
 loopforge confirmations list
+loopforge review OPERATION_ID merged
+loopforge learned
+loopforge rollback PATCH_ID
 loopforge pr --dry-run PATCH_ID
 loopforge pr open PR_ID
 ```
@@ -155,15 +161,21 @@ python -m loopforge states list
 python -m loopforge states show
 python -m loopforge monitor --once
 python -m loopforge monitor --list-runs
+python -m loopforge queue list
+python -m loopforge queue run-next
 python -m loopforge dashboard build
 python -m loopforge evals list
 python -m loopforge propose ISSUE-0001
 python -m loopforge patches list
 python -m loopforge refinements list
+python -m loopforge refinements preview REFINE-0001-0001
 python -m loopforge replay PATCH-0001
 python -m loopforge gate PATCH-0001
 python -m loopforge confirm PATCH-0001 --observed-traces 50 --recurring-failures 0
 python -m loopforge confirmations list
+python -m loopforge review REFINE-0001-0001 merged
+python -m loopforge learned
+python -m loopforge rollback PATCH-0001
 python -m loopforge pr --dry-run PATCH-0001
 python -m loopforge pr open PR-PATCH-0001
 python -m loopforge schemas validate
@@ -180,6 +192,8 @@ cd fixtures/support-agent
 PYTHONPATH=../.. python -m loopforge shadow --last 24h
 PYTHONPATH=../.. python -m loopforge monitor --once --last 24h
 PYTHONPATH=../.. python -m loopforge monitor --list-runs
+PYTHONPATH=../.. python -m loopforge queue list
+PYTHONPATH=../.. python -m loopforge queue run-next
 PYTHONPATH=../.. python -m loopforge issues list
 PYTHONPATH=../.. python -m loopforge issues show ISSUE-0001
 PYTHONPATH=../.. python -m loopforge evals list
@@ -187,9 +201,13 @@ PYTHONPATH=../.. python -m loopforge evals show EVAL-0001
 PYTHONPATH=../.. python -m loopforge propose ISSUE-0001
 PYTHONPATH=../.. python -m loopforge patches show PATCH-0001
 PYTHONPATH=../.. python -m loopforge refinements list
+PYTHONPATH=../.. python -m loopforge refinements preview REFINE-0001-0001
 PYTHONPATH=../.. python -m loopforge gate PATCH-0001
 PYTHONPATH=../.. python -m loopforge confirm PATCH-0001 --observed-traces 10 --recurring-failures 0
 PYTHONPATH=../.. python -m loopforge confirmations list
+PYTHONPATH=../.. python -m loopforge review REFINE-0001-0001 merged
+PYTHONPATH=../.. python -m loopforge learned
+PYTHONPATH=../.. python -m loopforge rollback PATCH-0001
 PYTHONPATH=../.. python -m loopforge pr --dry-run PATCH-0001
 ```
 

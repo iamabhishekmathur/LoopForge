@@ -15,6 +15,7 @@ from loopforge.config import (
 )
 from loopforge.db import Store
 from loopforge.models.monitor import MonitorRun
+from loopforge.queue.runner import enqueue_refiner_job
 from loopforge.shadow.runner import run_shadow_pipeline
 
 
@@ -66,6 +67,17 @@ def run_monitor_once(root: Path, window: str, trace_path: str) -> MonitorRun:
 
     try:
         result = run_shadow_pipeline(root, window, trace_path)
+        queue_item = enqueue_refiner_job(
+            root,
+            trigger="monitor_schedule",
+            trace_window=window,
+            target_scope="workflow",
+            metadata={
+                "monitor_run_id": run_id,
+                "trace_path": result.trace_path,
+                "issue_count": result.issue_count,
+            },
+        )
         finished = MonitorRun(
             run_id=run_id,
             status="succeeded",
@@ -83,6 +95,7 @@ def run_monitor_once(root: Path, window: str, trace_path: str) -> MonitorRun:
             },
             metadata={
                 "mode": "scheduled_shadow",
+                "refiner_queue_item_id": queue_item.queue_item_id,
                 "reports": [path.relative_to(root).as_posix() for path in result.report_paths],
             },
         )

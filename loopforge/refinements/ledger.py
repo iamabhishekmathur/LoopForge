@@ -51,6 +51,12 @@ def refinement_operations_for_patch(
                     ),
                 },
                 created_at=timestamp,
+                scope=_scope(patch),
+                expected_outcome=str(patch.metadata.get("expected_outcome") or ""),
+                validation_plan=str(patch.metadata.get("validation_plan") or ""),
+                rollback_plan=patch.rollback_plan,
+                preview_diff=patch.diff,
+                reviewer_boundary=_reviewer_boundary(patch),
                 metadata={
                     "primary_ontology_id": issue.primary_ontology_id,
                     "issue_confidence": issue.confidence,
@@ -95,6 +101,7 @@ def _component_type(patch: PatchBundle, artifact: dict[str, Any]) -> str:
         "skill": "skill",
         "memory": "memory",
         "sub_agent": "sub_agent",
+        "subagent_spec": "sub_agent",
     }
     return mapping.get(layer, "harness_artifact")
 
@@ -104,6 +111,26 @@ def _operation_confidence(issue: Issue, artifact: dict[str, Any]) -> float:
     if artifact_confidence <= 0:
         return round(issue.confidence, 4)
     return round((issue.confidence + artifact_confidence) / 2, 4)
+
+
+def _scope(patch: PatchBundle) -> str:
+    explicit = str(patch.metadata.get("refinement_scope") or "")
+    if explicit:
+        return explicit
+    if patch.metadata.get("patch_layer") == "permission_policy":
+        return "project"
+    return "workflow"
+
+
+def _reviewer_boundary(patch: PatchBundle) -> str:
+    explicit = str(patch.metadata.get("reviewer_boundary") or "")
+    if explicit:
+        return explicit
+    if _scope(patch) == "project":
+        return "maintainer_review"
+    if _scope(patch) == "org":
+        return "platform_security_review"
+    return "agent_team_review"
 
 
 def _rationale(issue: Issue, patch: PatchBundle, artifact: dict[str, Any]) -> str:

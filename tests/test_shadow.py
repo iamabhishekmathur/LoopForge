@@ -148,6 +148,10 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
         ["refinements", "show", "REFINE-0001-0001"],
         project_root,
     )
+    refinements_preview = run_loopforge(
+        ["refinements", "preview", "REFINE-0001-0001"],
+        project_root,
+    )
     premature_pr = run_loopforge(["pr", "--dry-run", "PATCH-0001"], project_root)
     gate = run_loopforge(["gate", "PATCH-0001"], project_root)
     patches_show_after_gate = run_loopforge(["patches", "show", "PATCH-0001"], project_root)
@@ -171,6 +175,11 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert refinements_show.returncode == 0, refinements_show.stderr
     assert "Trace-backed issue ISSUE-0001" in refinements_show.stdout
     assert "requires_human_approval" in refinements_show.stdout
+    assert "Scope: `workflow`" in refinements_show.stdout
+    assert "Expected Outcome" in refinements_show.stdout
+    assert refinements_preview.returncode == 0, refinements_preview.stderr
+    assert "Diff Preview" in refinements_preview.stdout
+    assert "explicitly confirmed" in refinements_preview.stdout
     assert premature_pr.returncode == 1
     assert "patch must pass gates" in premature_pr.stderr
     assert gate.returncode == 0, gate.stderr
@@ -185,12 +194,25 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
         ["confirmations", "show", "CONFIRM-PATCH-0001"],
         project_root,
     )
+    review = run_loopforge(
+        ["review", "REFINE-0001-0001", "merged", "--note", "Looks grounded."],
+        project_root,
+    )
+    learned = run_loopforge(["learned"], project_root)
+    rollback = run_loopforge(["rollback", "PATCH-0001"], project_root)
     assert confirm.returncode == 0, confirm.stderr
     assert "outcome: confirmed" in confirm.stdout
     assert confirmations_list.returncode == 0
     assert "CONFIRM-PATCH-0001" in confirmations_list.stdout
     assert confirmations_show.returncode == 0
     assert '"outcome": "confirmed"' in confirmations_show.stdout
+    assert review.returncode == 0, review.stderr
+    assert "outcome: merged" in review.stdout
+    assert learned.returncode == 0, learned.stderr
+    assert "What LoopForge Learned" in learned.stdout
+    assert "`merged`: 1" in learned.stdout
+    assert rollback.returncode == 0, rollback.stderr
+    assert "Wrote rollback artifact" in rollback.stdout
     patches_list_after_gate = run_loopforge(["patches", "list"], project_root)
     refinements_show_after_gate = run_loopforge(
         ["refinements", "show", "REFINE-0001-0001"],
@@ -200,7 +222,7 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert patches_show_after_gate.returncode == 0
     assert "Latest Gate" in patches_show_after_gate.stdout
     assert refinements_show_after_gate.returncode == 0, refinements_show_after_gate.stderr
-    assert "Status: gated" in refinements_show_after_gate.stdout
+    assert "Status: merged" in refinements_show_after_gate.stdout
     assert pr.returncode == 0, pr.stderr
     assert "Drafted PR artifact PR-PATCH-0001" in pr.stdout
     assert "loopforge/issue-0001/cancel-subscription" in pr.stdout
@@ -221,8 +243,10 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert (project_root / ".loopforge" / "reports" / "GATE-PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "reports" / "REPLAY-PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "reports" / "CONFIRM-PATCH-0001.json").is_file()
+    assert (project_root / ".loopforge" / "reports" / "LEARNED.md").is_file()
     assert (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.md").is_file()
+    assert (project_root / ".loopforge" / "rollbacks" / "ROLLBACK-PATCH-0001.diff").is_file()
 
     pr_payload = json.loads(
         (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.json").read_text(
@@ -239,7 +263,12 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     )
     assert refinement_payload["component_type"] == "tool"
     assert refinement_payload["patch_id"] == "PATCH-0001"
-    assert refinement_payload["status"] == "gated"
+    assert refinement_payload["status"] == "merged"
+    assert refinement_payload["scope"] == "workflow"
+    assert refinement_payload["expected_outcome"]
+    assert refinement_payload["validation_plan"]
+    assert refinement_payload["preview_diff"]
     assert refinement_payload["provenance"]["component_pass"] == "tool_refiner"
     assert refinement_payload["metadata"]["latest_gate_status"] == "pass"
     assert refinement_payload["metadata"]["post_merge_outcome"] == "confirmed"
+    assert refinement_payload["metadata"]["latest_reviewer_outcome"] == "merged"
