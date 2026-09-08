@@ -110,6 +110,7 @@ loopforge propose ISSUE_ID --layer system_prompt
 loopforge refinements list
 loopforge gate PATCH_ID
 loopforge confirm PATCH_ID --observed-traces 50 --recurring-failures 0
+loopforge confirmations list
 loopforge pr --dry-run PATCH_ID
 loopforge pr open PR_ID
 ```
@@ -145,6 +146,7 @@ python -m loopforge connectors doctor
 python -m loopforge discover
 python -m loopforge manifest show
 python -m loopforge states list
+python -m loopforge states show
 python -m loopforge monitor --once
 python -m loopforge monitor --list-runs
 python -m loopforge dashboard build
@@ -155,6 +157,7 @@ python -m loopforge refinements list
 python -m loopforge replay PATCH-0001
 python -m loopforge gate PATCH-0001
 python -m loopforge confirm PATCH-0001 --observed-traces 50 --recurring-failures 0
+python -m loopforge confirmations list
 python -m loopforge pr --dry-run PATCH-0001
 python -m loopforge pr open PR-PATCH-0001
 python -m loopforge schemas validate
@@ -180,6 +183,7 @@ PYTHONPATH=../.. python -m loopforge patches show PATCH-0001
 PYTHONPATH=../.. python -m loopforge refinements list
 PYTHONPATH=../.. python -m loopforge gate PATCH-0001
 PYTHONPATH=../.. python -m loopforge confirm PATCH-0001 --observed-traces 10 --recurring-failures 0
+PYTHONPATH=../.. python -m loopforge confirmations list
 PYTHONPATH=../.. python -m loopforge pr --dry-run PATCH-0001
 ```
 

@@ -645,12 +645,16 @@
 <pre><code class="language-bash">loopforge init
 loopforge connect
 loopforge discover
+loopforge states list
 loopforge shadow --last 24h
 loopforge pr --eval-only
 loopforge monitor start
 loopforge issues list
 loopforge propose ISSUE-2026-00017
+loopforge refinements list
 loopforge gate PATCH-2026-00017-a
+loopforge confirm PATCH-2026-00017-a --observed-traces 50 --recurring-failures 0
+loopforge confirmations show CONFIRM-PATCH-2026-00017-a
 loopforge pr PATCH-2026-00017-a</code></pre>
 <h3 id="9-2-monitoring-service">9.2 Monitoring Service</h3>
 <p>The monitoring service is the default product loop after setup.</p>
@@ -1620,6 +1624,7 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>Runtime manifest emission SDK helpers.</li>
 <li>Harness state graph sufficient to connect traces, manifests, artifacts, issues, patches, gates, PRs, and refinement operations.</li>
 <li>Refinement operation ledger with CRUD semantics.</li>
+<li>Confirmation report schema and post-merge effect classification.</li>
 <li>JSONL trace adapter.</li>
 <li>OpenTelemetry/OpenInference trace mapping.</li>
 <li>Langfuse export adapter.</li>
@@ -1630,6 +1635,7 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>LLM-assisted diagnosis with local redaction.</li>
 <li>Candidate patch generation for Markdown and YAML harness artifacts.</li>
 <li>Component-specific refiner passes for prompts, Skills, tools, policies, evals, and memory-interface policies.</li>
+<li>Patch concentration gate.</li>
 <li>Eval generation in YAML/JSONL.</li>
 <li>AI-drafted evaluator generation and validation records.</li>
 <li>Setup PR generation for manifests, trace enrichment, side-effect classes, replay stubs, CI, and monitor config.</li>
@@ -1984,6 +1990,7 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>Codebase discovery.</li>
 <li>Harness artifact index.</li>
 <li>Runtime harness manifest schema and SDK helpers.</li>
+<li>Harness state graph.</li>
 <li>Refinement operation ledger.</li>
 <li>Redaction.</li>
 <li>Probabilistic issue mining.</li>
@@ -1991,8 +1998,11 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>Autonomy ramp.</li>
 <li>Trust qualification report.</li>
 <li>Patch proposal.</li>
+<li>Component-specific refiner pass abstraction.</li>
+<li>Patch concentration gate.</li>
 <li>Eval generation.</li>
 <li>Local gates.</li>
+<li>Confirmation reports.</li>
 <li>Git patch export.</li>
 </ul>
 <h3 id="phase-2-pr-workflow">Phase 2: PR Workflow</h3>

@@ -284,12 +284,16 @@ Example:
 loopforge init
 loopforge connect
 loopforge discover
+loopforge states list
 loopforge shadow --last 24h
 loopforge pr --eval-only
 loopforge monitor start
 loopforge issues list
 loopforge propose ISSUE-2026-00017
+loopforge refinements list
 loopforge gate PATCH-2026-00017-a
+loopforge confirm PATCH-2026-00017-a --observed-traces 50 --recurring-failures 0
+loopforge confirmations show CONFIRM-PATCH-2026-00017-a
 loopforge pr PATCH-2026-00017-a
 ```
 
@@ -983,6 +987,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Runtime manifest emission SDK helpers.
 - Harness state graph sufficient to connect traces, manifests, artifacts, issues, patches, gates, PRs, and refinement operations.
 - Refinement operation ledger with CRUD semantics.
+- Confirmation report schema and post-merge effect classification.
 - JSONL trace adapter.
 - OpenTelemetry/OpenInference trace mapping.
 - Langfuse export adapter.
@@ -993,6 +998,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - LLM-assisted diagnosis with local redaction.
 - Candidate patch generation for Markdown and YAML harness artifacts.
 - Component-specific refiner passes for prompts, Skills, tools, policies, evals, and memory-interface policies.
+- Patch concentration gate.
 - Eval generation in YAML/JSONL.
 - AI-drafted evaluator generation and validation records.
 - Setup PR generation for manifests, trace enrichment, side-effect classes, replay stubs, CI, and monitor config.
@@ -1250,6 +1256,7 @@ LoopForge should acknowledge existing tools and win by composition.
 - Codebase discovery.
 - Harness artifact index.
 - Runtime harness manifest schema and SDK helpers.
+- Harness state graph.
 - Refinement operation ledger.
 - Redaction.
 - Probabilistic issue mining.
@@ -1257,8 +1264,11 @@ LoopForge should acknowledge existing tools and win by composition.
 - Autonomy ramp.
 - Trust qualification report.
 - Patch proposal.
+- Component-specific refiner pass abstraction.
+- Patch concentration gate.
 - Eval generation.
 - Local gates.
+- Confirmation reports.
 - Git patch export.
 
 ### Phase 2: PR Workflow

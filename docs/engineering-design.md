@@ -1687,6 +1687,8 @@ loopforge init
 loopforge connect
 loopforge doctor
 loopforge discover
+loopforge states list
+loopforge states show STATE_ID
 loopforge index show
 loopforge shadow
 loopforge monitor start
@@ -1705,6 +1707,9 @@ loopforge patches show PATCH_ID
 loopforge refinements list
 loopforge refinements show OPERATION_ID
 loopforge gate PATCH_ID
+loopforge confirm PATCH_ID
+loopforge confirmations list
+loopforge confirmations show CONFIRMATION_ID
 loopforge pr PATCH_ID
 loopforge launch simulate
 loopforge eval run
