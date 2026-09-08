@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .adapters.registry import connector_statuses
 from .config import InitOptions, initialize_project, inspect_project
 from .db import Store
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
@@ -47,6 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("doctor", help="Check local LoopForge project health.")
     subparsers.add_parser("discover", help="Discover harness artifacts in this repository.")
+
+    connectors = subparsers.add_parser("connectors", help="Inspect trace connectors.")
+    connector_subparsers = connectors.add_subparsers(dest="connector_command", required=True)
+    connector_subparsers.add_parser("list", help="List configured trace connectors.")
+    connector_subparsers.add_parser("doctor", help="Validate trace connector readiness.")
 
     shadow = subparsers.add_parser("shadow", help="Run local trace ingestion and issue mining.")
     shadow.add_argument("--last", default="24h", help="Trace window label for this run.")
@@ -179,6 +185,33 @@ def command_discover(_: argparse.Namespace) -> int:
     for artifact in artifacts:
         print(f"  {artifact.artifact_type:18} {artifact.confidence:.2f} {artifact.path}")
     return 0
+
+
+def command_connectors_list(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    statuses = connector_statuses(root)
+    for status in statuses:
+        print(
+            f"{status.source_id}  {status.source_type:14}  "
+            f"{status.status:17}  {status.message}"
+        )
+    return 0
+
+
+def command_connectors_doctor(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    statuses = connector_statuses(root)
+    failed = []
+    for status in statuses:
+        ok = status.status in {"ready", "setup_only"}
+        marker = "ok" if ok else "error"
+        print(
+            f"{marker:5} {status.source_id}  {status.source_type:14}  "
+            f"{status.status:17}  {status.message}"
+        )
+        if not ok:
+            failed.append(status)
+    return 1 if failed else 0
 
 
 def command_shadow(args: argparse.Namespace) -> int:
@@ -763,6 +796,10 @@ def run(argv: list[str] | None = None) -> int:
         return command_doctor(args)
     if args.command == "discover":
         return command_discover(args)
+    if args.command == "connectors" and args.connector_command == "list":
+        return command_connectors_list(args)
+    if args.command == "connectors" and args.connector_command == "doctor":
+        return command_connectors_doctor(args)
     if args.command == "shadow":
         return command_shadow(args)
     if args.command == "monitor":

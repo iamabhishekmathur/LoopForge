@@ -6,8 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from loopforge.adapters.jsonl import JsonlTraceAdapter
-from loopforge.config import configured_trace_path
+from loopforge.adapters.registry import read_traces
 from loopforge.db import Store
 from loopforge.discovery.scanner import discover_harness_artifacts, write_harness_index
 from loopforge.evals.artifacts import write_eval_artifacts
@@ -36,9 +35,7 @@ def run_shadow_pipeline(
     window: str,
     trace_path_override: str | None = None,
 ) -> ShadowRunResult:
-    trace_path = trace_path_override or configured_trace_path(root)
-    adapter = JsonlTraceAdapter(trace_path)
-    traces = adapter.read(root)
+    trace_path, traces = read_traces(root, trace_path_override)
 
     store = Store.for_project(root)
     try:

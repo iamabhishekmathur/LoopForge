@@ -88,7 +88,7 @@ The first 30 minute onboarding experience should build trust before asking for b
 
 ```text
 loopforge init
-loopforge connect
+loopforge connectors doctor
 loopforge discover
 loopforge shadow --last 24h
 loopforge issues show ISSUE_ID
@@ -117,6 +117,8 @@ Run the CLI from source:
 python -m loopforge --help
 python -m loopforge init
 python -m loopforge doctor
+python -m loopforge connectors list
+python -m loopforge connectors doctor
 python -m loopforge discover
 python -m loopforge monitor --once
 python -m loopforge monitor --list-runs
