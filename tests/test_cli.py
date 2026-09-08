@@ -86,3 +86,5 @@ def test_help_includes_discover_and_shadow(tmp_path: Path) -> None:
     assert "pr" in result.stdout
     assert "prs" in result.stdout
     assert "replay" in result.stdout
+    assert "confirm" in result.stdout
+    assert "confirmations" in result.stdout

@@ -11,12 +11,14 @@ from pathlib import Path
 from . import __version__
 from .adapters.registry import connector_statuses
 from .config import InitOptions, initialize_project, inspect_project
+from .confirmation.runner import confirm_patch_outcome, write_confirmation_report
 from .dashboard.render import build_dashboard
 from .db import Store
 from .discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
 from .issues.report import issue_report_markdown, write_issue_report
 from .models.eval import EvalExample, EvaluatorDefinition, EvaluatorValidationRecord
+from .models.confirmation import ConfirmationReport
 from .models.harness import HarnessArtifact
 from .models.issue import Issue
 from .models.monitor import MonitorRun
@@ -148,6 +150,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     replay = subparsers.add_parser("replay", help="Run replay simulation for a patch bundle.")
     replay.add_argument("patch_id")
+
+    confirm = subparsers.add_parser("confirm", help="Classify post-merge patch confirmation.")
+    confirm.add_argument("patch_id")
+    confirm.add_argument("--observed-traces", type=int, default=None)
+    confirm.add_argument("--recurring-failures", type=int, default=None)
+    confirm.add_argument("--min-observed-traces", type=int, default=5)
+
+    confirmations = subparsers.add_parser("confirmations", help="Inspect confirmation reports.")
+    confirmation_subparsers = confirmations.add_subparsers(
+        dest="confirmation_command",
+        required=True,
+    )
+    confirmation_subparsers.add_parser("list", help="List confirmation reports.")
+    confirmation_show = confirmation_subparsers.add_parser(
+        "show",
+        help="Show one confirmation report.",
+    )
+    confirmation_show.add_argument("confirmation_id")
 
     pr = subparsers.add_parser("pr", help="Draft or open pull request artifacts.")
     pr.add_argument("--dry-run", action="store_true", help="Write local PR JSON and Markdown only.")
@@ -871,6 +891,91 @@ def command_replay(args: argparse.Namespace) -> int:
     return 0 if report.status == "pass" else 1
 
 
+def command_confirm(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        patch_payload = store.get_patch_bundle(args.patch_id)
+        if patch_payload is None:
+            print(f"error: patch not found: {args.patch_id}", file=sys.stderr)
+            return 1
+        patch = PatchBundle.from_dict(patch_payload)
+        issue = store.get_issue(patch.issue_id)
+        if issue is None:
+            print(f"error: issue not found for patch: {patch.issue_id}", file=sys.stderr)
+            return 1
+        operations = store.list_refinement_operations_for_patch(patch.patch_id)
+        report = confirm_patch_outcome(
+            patch,
+            issue,
+            operations,
+            observed_trace_count=args.observed_traces,
+            recurring_failure_count=args.recurring_failures,
+            min_observed_traces=args.min_observed_traces,
+        )
+        path = write_confirmation_report(root, report)
+        store.upsert_confirmation_report(report.to_dict())
+        for operation_payload in operations:
+            operation = RefinementOperation.from_dict(operation_payload)
+            updated_operation = replace(
+                operation,
+                metadata={
+                    **operation.metadata,
+                    "latest_confirmation_report_id": report.confirmation_id,
+                    "post_merge_outcome": report.outcome,
+                },
+            )
+            write_refinement_operations(root, [updated_operation])
+            store.upsert_refinement_operation(updated_operation.to_dict())
+    finally:
+        store.close()
+
+    print(f"Confirmation report {report.confirmation_id}")
+    print(f"  patch: {report.patch_id}")
+    print(f"  status: {report.status}")
+    print(f"  outcome: {report.outcome}")
+    print(f"  recommendation: {report.recommendation}")
+    print(f"  observed_failure_rate: {report.observed_failure_rate:.4f}")
+    print(f"  report: {path.relative_to(root)}")
+    return 0 if report.outcome in {"confirmed", "insufficient_data"} else 1
+
+
+def command_confirmations_list(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        reports = store.list_confirmation_reports()
+    finally:
+        store.close()
+
+    if not reports:
+        print("No confirmation reports found.")
+        return 0
+
+    for report in reports:
+        print(
+            f"{report['confirmation_id']}  {report['outcome']:17}  "
+            f"patch={report['patch_id']}  recommendation={report['recommendation']}"
+        )
+    return 0
+
+
+def command_confirmations_show(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        report = store.get_confirmation_report(args.confirmation_id)
+    finally:
+        store.close()
+
+    if report is None:
+        print(f"error: confirmation report not found: {args.confirmation_id}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(ConfirmationReport.from_dict(report).to_dict(), indent=2, sort_keys=True))
+    return 0
+
+
 def command_pr(args: argparse.Namespace) -> int:
     if args.dry_run:
         if len(args.pr_args) != 1:
@@ -1224,6 +1329,12 @@ def run(argv: list[str] | None = None) -> int:
         return command_gate(args)
     if args.command == "replay":
         return command_replay(args)
+    if args.command == "confirm":
+        return command_confirm(args)
+    if args.command == "confirmations" and args.confirmation_command == "list":
+        return command_confirmations_list(args)
+    if args.command == "confirmations" and args.confirmation_command == "show":
+        return command_confirmations_show(args)
     if args.command == "pr":
         return command_pr(args)
     if args.command == "prs" and args.pr_command == "list":

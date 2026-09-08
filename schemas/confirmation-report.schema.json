@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/confirmation-report.schema.json",
+  "title": "LoopForge Confirmation Report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "confirmation_id",
+    "patch_id",
+    "issue_id",
+    "operation_ids",
+    "status",
+    "outcome",
+    "baseline_failure_rate",
+    "observed_failure_rate",
+    "observed_trace_count",
+    "recurring_failure_count",
+    "recommendation",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "confirmation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "patch_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issue_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operation_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "status": {
+      "type": "string",
+      "enum": ["complete", "insufficient_data"]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["confirmed", "no_effect", "regressed", "insufficient_data"]
+    },
+    "baseline_failure_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "observed_failure_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "observed_trace_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "recurring_failure_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "recommendation": {
+      "type": "string",
+      "enum": ["continue_monitoring", "mark_pattern_trusted", "revisit_patch_layer", "reopen_issue"]
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

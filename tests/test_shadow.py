@@ -176,6 +176,21 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert gate.returncode == 0, gate.stderr
     assert "status: pass" in gate.stdout
     assert "merge_after_human_review" in gate.stdout
+    confirm = run_loopforge(
+        ["confirm", "PATCH-0001", "--observed-traces", "10", "--recurring-failures", "0"],
+        project_root,
+    )
+    confirmations_list = run_loopforge(["confirmations", "list"], project_root)
+    confirmations_show = run_loopforge(
+        ["confirmations", "show", "CONFIRM-PATCH-0001"],
+        project_root,
+    )
+    assert confirm.returncode == 0, confirm.stderr
+    assert "outcome: confirmed" in confirm.stdout
+    assert confirmations_list.returncode == 0
+    assert "CONFIRM-PATCH-0001" in confirmations_list.stdout
+    assert confirmations_show.returncode == 0
+    assert '"outcome": "confirmed"' in confirmations_show.stdout
     patches_list_after_gate = run_loopforge(["patches", "list"], project_root)
     refinements_show_after_gate = run_loopforge(
         ["refinements", "show", "REFINE-0001-0001"],
@@ -205,6 +220,7 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     ).is_file()
     assert (project_root / ".loopforge" / "reports" / "GATE-PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "reports" / "REPLAY-PATCH-0001.json").is_file()
+    assert (project_root / ".loopforge" / "reports" / "CONFIRM-PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.md").is_file()
 
@@ -226,3 +242,4 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert refinement_payload["status"] == "gated"
     assert refinement_payload["provenance"]["component_pass"] == "tool_refiner"
     assert refinement_payload["metadata"]["latest_gate_status"] == "pass"
+    assert refinement_payload["metadata"]["post_merge_outcome"] == "confirmed"

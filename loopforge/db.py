@@ -103,6 +103,17 @@ create table if not exists gate_reports (
   foreign key(patch_id) references patch_bundles(patch_id)
 );
 
+create table if not exists confirmation_reports (
+  confirmation_id text primary key,
+  patch_id text not null,
+  issue_id text not null,
+  status text not null,
+  outcome text not null,
+  payload_json text not null,
+  foreign key(patch_id) references patch_bundles(patch_id),
+  foreign key(issue_id) references issues(issue_id)
+);
+
 create table if not exists replay_reports (
   replay_id text primary key,
   patch_id text not null,
@@ -494,6 +505,44 @@ class Store:
             "select payload_json from gate_reports order by gate_report_id"
         ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
+
+    def upsert_confirmation_report(self, report: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into confirmation_reports(
+              confirmation_id, patch_id, issue_id, status, outcome, payload_json
+            )
+            values (?, ?, ?, ?, ?, ?)
+            on conflict(confirmation_id) do update set
+              patch_id=excluded.patch_id,
+              issue_id=excluded.issue_id,
+              status=excluded.status,
+              outcome=excluded.outcome,
+              payload_json=excluded.payload_json
+            """,
+            (
+                report["confirmation_id"],
+                report["patch_id"],
+                report["issue_id"],
+                report["status"],
+                report["outcome"],
+                json.dumps(report, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_confirmation_reports(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from confirmation_reports order by confirmation_id"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def get_confirmation_report(self, confirmation_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from confirmation_reports where confirmation_id = ?",
+            (confirmation_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
 
     def upsert_replay_report(self, report: dict[str, Any]) -> None:
         self.connection.execute(

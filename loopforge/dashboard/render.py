@@ -33,6 +33,7 @@ def collect_dashboard_data(root: Path) -> dict[str, Any]:
             "refinements": store.list_refinement_operations(),
             "gates": store.list_gate_reports(),
             "replays": store.list_replay_reports(),
+            "confirmations": store.list_confirmation_reports(),
             "prs": store.list_pr_artifacts(),
             "manifests": store.list_runtime_manifests(),
             "states": store.list_harness_states(),
@@ -110,6 +111,7 @@ def render_dashboard(data: dict[str, Any]) -> str:
     {_table("Refinement Operations", data.get("refinements", []), ["operation_id", "status", "operation_type", "component_type", "patch_id"])}
     {_table("Gates", data.get("gates", []), ["gate_report_id", "status", "recommendation", "patch_id"])}
     {_table("Replay Reports", data.get("replays", []), ["replay_id", "status", "patch_id", "passed_cases", "failed_cases"])}
+    {_table("Confirmation Reports", data.get("confirmations", []), ["confirmation_id", "outcome", "patch_id", "recommendation"])}
     {_table("PR Artifacts", data.get("prs", []), ["pr_id", "status", "patch_id", "branch_name"])}
     {_table("Runtime Manifests", data.get("manifests", []), ["manifest_id", "agent_id", "agent_version", "model_name"])}
     {_table("Harness States", data.get("states", []), ["state_id", "source", "confidence", "operation_ids"])}
@@ -127,6 +129,7 @@ def _overview(data: dict[str, Any]) -> str:
         ("Patches", len(data.get("patches", []))),
         ("Refinements", len(data.get("refinements", []))),
         ("Gates", len(data.get("gates", []))),
+        ("Confirmations", len(data.get("confirmations", []))),
         ("PRs", len(data.get("prs", []))),
         ("States", len(data.get("states", []))),
     ]

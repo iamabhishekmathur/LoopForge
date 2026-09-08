@@ -68,6 +68,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 
 - [Product Spec](docs/product-spec.md)
 - [Engineering Design](docs/engineering-design.md)
+- [Confirmation Report Schema](schemas/confirmation-report.schema.json)
 - [Eval Example Schema](schemas/eval-example.schema.json)
 - [Evaluator Definition Schema](schemas/evaluator-definition.schema.json)
 - [Evaluator Validation Schema](schemas/evaluator-validation.schema.json)
@@ -108,6 +109,7 @@ loopforge propose ISSUE_ID
 loopforge propose ISSUE_ID --layer system_prompt
 loopforge refinements list
 loopforge gate PATCH_ID
+loopforge confirm PATCH_ID --observed-traces 50 --recurring-failures 0
 loopforge pr --dry-run PATCH_ID
 loopforge pr open PR_ID
 ```
@@ -152,6 +154,7 @@ python -m loopforge patches list
 python -m loopforge refinements list
 python -m loopforge replay PATCH-0001
 python -m loopforge gate PATCH-0001
+python -m loopforge confirm PATCH-0001 --observed-traces 50 --recurring-failures 0
 python -m loopforge pr --dry-run PATCH-0001
 python -m loopforge pr open PR-PATCH-0001
 python -m loopforge schemas validate
@@ -176,6 +179,7 @@ PYTHONPATH=../.. python -m loopforge propose ISSUE-0001
 PYTHONPATH=../.. python -m loopforge patches show PATCH-0001
 PYTHONPATH=../.. python -m loopforge refinements list
 PYTHONPATH=../.. python -m loopforge gate PATCH-0001
+PYTHONPATH=../.. python -m loopforge confirm PATCH-0001 --observed-traces 10 --recurring-failures 0
 PYTHONPATH=../.. python -m loopforge pr --dry-run PATCH-0001
 ```
 
