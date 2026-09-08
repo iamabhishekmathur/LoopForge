@@ -11,7 +11,7 @@ from loopforge.adapters.registry import (
     connector_statuses,
     read_traces,
 )
-from loopforge.adapters.hosted import HostedTraceAdapter
+from loopforge.adapters.hosted import HostedTraceAdapter, normalize_provider_payload
 from loopforge.adapters.sync import read_sync_state
 
 
@@ -132,6 +132,30 @@ def test_hosted_adapter_normalizes_langsmith_fixture() -> None:
     assert traces[0].spans[0].type == "tool_call"
     assert traces[0].spans[0].name == "cancel_subscription"
     assert traces[0].spans[0].side_effect_class == "destructive"
+
+
+def test_hosted_adapter_preserves_human_approval_spans() -> None:
+    payload = {
+        "runs": [
+            {
+                "id": "ls-run-approval",
+                "started_at": "2026-09-08T10:00:00Z",
+                "inputs": {"user_message": "Cancel now. I confirm."},
+                "child_runs": [
+                    {
+                        "id": "approval-span",
+                        "name": "confirmation",
+                        "run_type": "human_approval",
+                        "started_at": "2026-09-08T10:00:01Z",
+                    }
+                ],
+            }
+        ]
+    }
+
+    traces = normalize_provider_payload("langsmith", payload, "prod")
+
+    assert traces[0].spans[0].type == "human_approval"
 
 
 def test_hosted_adapter_endpoint_includes_incremental_state() -> None:

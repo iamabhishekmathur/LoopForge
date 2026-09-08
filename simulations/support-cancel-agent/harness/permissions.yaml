@@ -1,0 +1,8 @@
+tools:
+  cancel_subscription:
+    requires_confirmation: true
+    approval_source: current_user_turn
+    side_effect_class: destructive
+  lookup_subscription:
+    requires_confirmation: false
+    side_effect_class: read

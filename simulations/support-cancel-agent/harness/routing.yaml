@@ -1,0 +1,6 @@
+policy: route support requests to the subscription support agent.
+routes:
+  cancellation:
+    when: user asks about cancellation, billing objections, or churn risk.
+    agent: support-cancellation-agent
+    skill: retention

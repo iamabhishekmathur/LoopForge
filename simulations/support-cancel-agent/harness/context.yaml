@@ -1,0 +1,6 @@
+policy: assemble account state, current conversation, and recent support notes.
+context:
+  include_account_status: true
+  include_recent_invoices: true
+  include_last_support_thread: true
+  exclude_payment_credentials: true

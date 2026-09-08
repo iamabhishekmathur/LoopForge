@@ -32,7 +32,7 @@ def iter_monitor_runs(
     sleep: SleepFn = time.sleep,
 ) -> Iterator[MonitorRun]:
     resolved_window = window or configured_monitor_trace_window(root)
-    resolved_trace_path = trace_path or configured_trace_path(root)
+    resolved_trace_path = trace_path if trace_path is not None else configured_trace_path(root)
     resolved_interval = (
         interval_seconds
         if interval_seconds is not None
@@ -47,16 +47,17 @@ def iter_monitor_runs(
             sleep(resolved_interval)
 
 
-def run_monitor_once(root: Path, window: str, trace_path: str) -> MonitorRun:
+def run_monitor_once(root: Path, window: str, trace_path: str | None) -> MonitorRun:
     started_at = _now()
     run_id = "MONITOR-" + started_at.replace("-", "").replace(":", "").replace(".", "")
+    trace_path_label = trace_path or "configured_trace_sources"
     running = MonitorRun(
         run_id=run_id,
         status="running",
         started_at=started_at,
         finished_at=None,
         window=window,
-        trace_path=trace_path,
+        trace_path=trace_path_label,
         counts={},
         metadata={"mode": "scheduled_shadow"},
     )
@@ -107,7 +108,7 @@ def run_monitor_once(root: Path, window: str, trace_path: str) -> MonitorRun:
             started_at=started_at,
             finished_at=_now(),
             window=window,
-            trace_path=trace_path,
+            trace_path=trace_path_label,
             counts={},
             error=str(exc),
             metadata={"mode": "scheduled_shadow"},

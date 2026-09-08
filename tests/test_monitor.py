@@ -97,3 +97,19 @@ def test_monitor_once_records_run_and_history(tmp_path: Path) -> None:
     assert "Drafted patches: `1`" in queue_run.stdout
     assert queue_cancel.returncode == 0
     assert "Status: `canceled`" in queue_cancel.stdout
+
+
+def test_monitor_once_reads_hosted_fixture_source_without_jsonl_path(tmp_path: Path) -> None:
+    project_root = tmp_path / "hosted-agent"
+    shutil.copytree(
+        REPO_ROOT / "simulations" / "support-cancel-agent",
+        project_root,
+        ignore=shutil.ignore_patterns(".loopforge", "simulation-output.md"),
+    )
+
+    run = run_loopforge(["monitor", "--once", "--last", "24h"], project_root)
+
+    assert run.returncode == 0, run.stderr
+    assert "succeeded" in run.stdout
+    assert "traces=6" in run.stdout
+    assert "issues=1" in run.stdout

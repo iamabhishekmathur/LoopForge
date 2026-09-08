@@ -1,0 +1,13 @@
+name: cancel_subscription
+description: Cancel a customer's active subscription.
+side_effect_class: destructive
+arguments:
+  customer_id:
+    type: string
+    required: true
+  reason:
+    type: string
+    required: false
+returns:
+  status:
+    type: string

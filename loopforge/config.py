@@ -281,7 +281,7 @@ def inspect_project(root: Path) -> dict[str, bool]:
     }
 
 
-def configured_trace_path(root: Path) -> str:
+def configured_trace_path(root: Path) -> str | None:
     """Read the first configured JSONL trace path from loopforge.yaml.
 
     The MVP avoids a YAML dependency, so this intentionally reads only the
@@ -302,7 +302,7 @@ def configured_trace_path(root: Path) -> str:
         if in_traces and stripped.startswith("path:"):
             value = stripped.split(":", 1)[1].strip()
             return value.strip("\"'")
-    return "traces/*.jsonl"
+    return None
 
 
 def configured_open_prs(root: Path) -> bool:

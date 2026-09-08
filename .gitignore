@@ -16,6 +16,7 @@ venv/
 node_modules/
 
 .loopforge/
+simulation-output.md
 dist/
 build/
 *.egg-info/

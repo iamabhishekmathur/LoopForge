@@ -164,6 +164,16 @@ python -m loopforge refinements list
 
 `loopforge readiness` passes only when the project is initialized, configured trace connectors are usable, packaged schemas parse, and the local redaction preview finds no sensitive-looking values. This is intentionally conservative: bad recommendations or privacy surprises erode trust faster than any feature can rebuild it.
 
+## Simulation
+
+LoopForge includes a local simulation under [simulations/support-cancel-agent](simulations/support-cancel-agent). It models a flawed support agent harness, a LangSmith-style observability export, and the full LoopForge run from connector checks through PR artifact generation:
+
+```bash
+python simulations/support-cancel-agent/run_simulation.py
+```
+
+The generated `simulation-output.md` shows the exact outputs an internal user should expect, including discovered harness artifacts, `ISSUE-0001`, `EVAL-0001`, `PATCH-0001`, a passing gate, and a dry-run PR artifact.
+
 Hosted trace sources can be configured with either a recorded fixture for local
 validation or a live HTTP endpoint:
 

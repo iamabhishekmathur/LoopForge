@@ -248,6 +248,8 @@ def _span_type(value: str) -> str:
         return "retrieval"
     if lowered in {"router", "chain"}:
         return "router"
+    if lowered in {"human_approval", "approval", "confirmation"}:
+        return "human_approval"
     if "error" in lowered:
         return "error"
     return "application"
