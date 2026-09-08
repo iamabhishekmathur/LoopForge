@@ -15,8 +15,14 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e .
-      - run: pytest
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest
       - run: python -m loopforge schemas validate
-      - run: python -m pip install build
-      - run: python -m build
+      - run: python -m loopforge demo --path /tmp/loopforge-demo --force
+      - run: python -m loopforge readiness
+        working-directory: /tmp/loopforge-demo
+      - run: python -m loopforge refinements preview REFINE-0001-0001
+        working-directory: /tmp/loopforge-demo
+      - run: python -m loopforge redact preview
+        working-directory: /tmp/loopforge-demo
+      - run: python -m build --no-isolation
