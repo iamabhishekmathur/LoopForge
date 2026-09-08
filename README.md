@@ -88,6 +88,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Refinement Operation Schema](schemas/refinement-operation.schema.json)
 - [Refiner Queue Item Schema](schemas/refiner-queue-item.schema.json)
 - [Replay Report Schema](schemas/replay-report.schema.json)
+- [Resolution Plan Schema](schemas/resolution-plan.schema.json)
 - [Runtime Harness Manifest Schema](schemas/runtime-harness-manifest.schema.json)
 - [Trace Schema](schemas/trace.schema.json)
 - [Trace Sync State Schema](schemas/trace-sync-state.schema.json)
@@ -228,6 +229,7 @@ If LoopForge finds a recurring issue, inspect the recommendation:
 
 ```bash
 loopforge issues show ISSUE-0001
+loopforge issues resolution-plan ISSUE-0001
 loopforge evals show EVAL-0001
 loopforge refinements preview REFINE-0001-0001
 loopforge gate PATCH-0001
@@ -251,6 +253,7 @@ loopforge discover
 loopforge states list
 loopforge shadow --last 24h
 loopforge issues show ISSUE_ID
+loopforge issues resolution-plan ISSUE_ID
 loopforge evals show EVAL_ID
 ```
 
@@ -354,6 +357,7 @@ python -m loopforge queue list
 python -m loopforge queue run-next
 python -m loopforge dashboard build
 python -m loopforge evals list
+python -m loopforge issues resolution-plan ISSUE-0001
 python -m loopforge propose ISSUE-0001
 python -m loopforge patches list
 python -m loopforge refinements list
@@ -385,6 +389,7 @@ PYTHONPATH=../.. python -m loopforge queue list
 PYTHONPATH=../.. python -m loopforge queue run-next
 PYTHONPATH=../.. python -m loopforge issues list
 PYTHONPATH=../.. python -m loopforge issues show ISSUE-0001
+PYTHONPATH=../.. python -m loopforge issues resolution-plan ISSUE-0001
 PYTHONPATH=../.. python -m loopforge evals list
 PYTHONPATH=../.. python -m loopforge evals show EVAL-0001
 PYTHONPATH=../.. python -m loopforge propose ISSUE-0001

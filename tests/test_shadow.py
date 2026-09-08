@@ -8,6 +8,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from loopforge.issues.resolution import build_resolution_plan
+from loopforge.models.issue import Issue
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,10 +49,14 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
     assert "issues: 1" in result.stdout
     assert "evals: 1" in result.stdout
     assert "validations: 1" in result.stdout
+    assert "resolutions: 1" in result.stdout
 
     report = project_root / ".loopforge" / "issues" / "ISSUE-0001.md"
+    resolution_report = project_root / ".loopforge" / "resolutions" / "RESOLVE-0001.md"
     assert report.is_file()
+    assert resolution_report.is_file()
     report_text = report.read_text(encoding="utf-8")
+    resolution_text = resolution_report.read_text(encoding="utf-8")
     assert "ACTION_AUTHORIZATION_ERROR" in report_text
     assert "tr_fail_001" in report_text
     assert "tr_clean_001" not in report_text
@@ -59,6 +66,8 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
     assert "structured_probabilistic_v1" in report_text
     assert "Trace scores" in report_text
     assert ".loopforge/analysis/ACTION_AUTHORIZATION_ERROR.json" in report_text
+    assert "runtime_enforcement_gap" in resolution_text
+    assert "policy already indicates confirmation is required" in resolution_text
 
     eval_path = project_root / ".loopforge" / "evals" / "EVAL-0001.json"
     evaluator_path = project_root / ".loopforge" / "evals" / "EVALUATOR-0001.json"
@@ -96,6 +105,9 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
         validation_count = connection.execute(
             "select count(*) from evaluator_validation_records"
         ).fetchone()[0]
+        resolution_count = connection.execute(
+            "select count(*) from resolution_plans"
+        ).fetchone()[0]
         manifest_count = connection.execute(
             "select count(*) from runtime_manifests"
         ).fetchone()[0]
@@ -113,6 +125,7 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
     assert eval_count == 1
     assert evaluator_count == 1
     assert validation_count == 1
+    assert resolution_count == 1
     assert manifest_count == 1
     assert state_count == 1
 
@@ -123,15 +136,19 @@ def test_issues_commands_show_shadow_results(tmp_path: Path) -> None:
 
     issue_list = run_loopforge(["issues", "list"], project_root)
     issue_show = run_loopforge(["issues", "show", "ISSUE-0001"], project_root)
+    resolution = run_loopforge(["issues", "resolution-plan", "ISSUE-0001"], project_root)
     eval_list = run_loopforge(["evals", "list"], project_root)
     eval_show = run_loopforge(["evals", "show", "EVAL-0001"], project_root)
 
     assert shadow.returncode == 0
     assert issue_list.returncode == 0
     assert eval_list.returncode == 0
+    assert resolution.returncode == 0, resolution.stderr
     assert eval_show.returncode == 0
     assert "ISSUE-0001" in issue_list.stdout
     assert "ACTION_AUTHORIZATION_ERROR" in issue_show.stdout
+    assert "Ranked Root Causes" in resolution.stdout
+    assert "runtime_enforcement_gap" in resolution.stdout
     assert "EVAL-0001" in eval_list.stdout
     assert "forbidden_tool_call" in eval_show.stdout
     assert "Blocking eligible: `True`" in eval_show.stdout
@@ -154,6 +171,10 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     )
     premature_pr = run_loopforge(["pr", "--dry-run", "PATCH-0001"], project_root)
     gate = run_loopforge(["gate", "PATCH-0001"], project_root)
+    resolution_after_gate = run_loopforge(
+        ["issues", "resolution-plan", "ISSUE-0001"],
+        project_root,
+    )
     patches_show_after_gate = run_loopforge(["patches", "show", "PATCH-0001"], project_root)
     pr = run_loopforge(["pr", "--dry-run", "PATCH-0001"], project_root)
     pr_open_disabled = run_loopforge(["pr", "open", "PR-PATCH-0001"], project_root)
@@ -185,6 +206,8 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert gate.returncode == 0, gate.stderr
     assert "status: pass" in gate.stdout
     assert "merge_after_human_review" in gate.stdout
+    assert resolution_after_gate.returncode == 0
+    assert "Gate Blockers\n\n- None" in resolution_after_gate.stdout
     confirm = run_loopforge(
         ["confirm", "PATCH-0001", "--observed-traces", "10", "--recurring-failures", "0"],
         project_root,
@@ -272,3 +295,67 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert refinement_payload["metadata"]["latest_gate_status"] == "pass"
     assert refinement_payload["metadata"]["post_merge_outcome"] == "confirmed"
     assert refinement_payload["metadata"]["latest_reviewer_outcome"] == "merged"
+
+
+def test_resolution_plan_explains_gate_blockers() -> None:
+    issue = Issue(
+        issue_id="ISSUE-0001",
+        title="Side-effecting tool call without approval: cancel_subscription",
+        primary_ontology_id="ACTION_AUTHORIZATION_ERROR",
+        ontology_version="1",
+        failure_layer="governance",
+        trace_observability="medium",
+        severity="high",
+        confidence=0.97,
+        evidence_trace_ids=["tr_001", "tr_002"],
+        recommended_patch_layers=["permission_policy", "tool_description", "eval"],
+        root_cause_hypotheses=[
+            {
+                "label": "missing_confirmation_contract",
+                "confidence": 0.97,
+                "explanation": "Risky side-effecting tool calls lacked approval spans.",
+            }
+        ],
+        metadata={"implicated_tools": ["cancel_subscription"]},
+    )
+    artifacts = [
+        {
+            "artifact_type": "permission_policy",
+            "path": "harness/permissions.yaml",
+            "confidence": 0.88,
+            "metadata": {"tools": ["cancel_subscription"]},
+        },
+        {
+            "artifact_type": "tool_definition",
+            "path": "harness/tools/cancel_subscription.yaml",
+            "confidence": 0.92,
+            "metadata": {"tool_name": "cancel_subscription"},
+        },
+    ]
+    gate_reports = [
+        {
+            "gate_report_id": "GATE-PATCH-0001",
+            "patch_id": "PATCH-0001",
+            "status": "reject",
+            "suites": [
+                {
+                    "name": "evaluator_validation",
+                    "status": "reject",
+                    "failed_cases": ["no blocking-eligible evaluator validation record"],
+                }
+            ],
+        }
+    ]
+
+    plan = build_resolution_plan(
+        issue,
+        artifacts=artifacts,
+        validations=[{"blocking_gate_eligible": False}],
+        gate_reports=gate_reports,
+    )
+
+    assert plan.status == "blocked"
+    assert plan.root_cause_rankings[0]["label"] == "runtime_enforcement_gap"
+    assert plan.gate_blockers[0]["suite"] == "evaluator_validation"
+    assert "Do not open a PR yet" in plan.recommended_next_action
+    assert "Runtime evidence" in plan.evidence_needed[0]

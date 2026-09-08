@@ -20,6 +20,7 @@ from .demo import run_demo
 from .discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
 from .issues.report import issue_report_markdown, write_issue_report
+from .issues.resolution import build_resolution_plan, resolution_plan_markdown, write_resolution_plan
 from .learning.report import learned_report_markdown, write_learned_report
 from .models.eval import EvalExample, EvaluatorDefinition, EvaluatorValidationRecord
 from .models.confirmation import ConfirmationReport
@@ -155,6 +156,11 @@ def build_parser() -> argparse.ArgumentParser:
     issue_subparsers.add_parser("list", help="List mined issues.")
     issue_show = issue_subparsers.add_parser("show", help="Show one mined issue.")
     issue_show.add_argument("issue_id")
+    issue_resolution = issue_subparsers.add_parser(
+        "resolution-plan",
+        help="Show a resolution plan for one mined issue.",
+    )
+    issue_resolution.add_argument("issue_id")
 
     evals = subparsers.add_parser("evals", help="Inspect drafted evals and validators.")
     eval_subparsers = evals.add_subparsers(dest="eval_command", required=True)
@@ -621,6 +627,7 @@ def command_shadow(args: argparse.Namespace) -> int:
     print(f"  issues: {result.issue_count}")
     print(f"  evals: {result.eval_count}")
     print(f"  validations: {result.validation_count}")
+    print(f"  resolutions: {result.resolution_count}")
     for report in result.report_paths:
         print(f"  report: {report.relative_to(root)}")
     return 0
@@ -772,7 +779,8 @@ def _monitor_run_summary(run: MonitorRun) -> str:
     summary = (
         f"Monitor run {run.run_id}: {run.status} "
         f"traces={counts.get('traces', 0)} issues={counts.get('issues', 0)} "
-        f"evals={counts.get('evals', 0)} validations={counts.get('validations', 0)}"
+        f"evals={counts.get('evals', 0)} validations={counts.get('validations', 0)} "
+        f"resolutions={counts.get('resolutions', 0)}"
     )
     if run.error:
         summary += f" error={run.error}"
@@ -901,6 +909,35 @@ def command_issues_show(args: argparse.Namespace) -> int:
         return 0
 
     print(issue_report_markdown(Issue.from_dict(issue)))
+    return 0
+
+
+def command_issues_resolution_plan(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        issue_payload = store.get_issue(args.issue_id)
+        if issue_payload is None:
+            print(f"error: issue not found: {args.issue_id}", file=sys.stderr)
+            return 1
+        issue = Issue.from_dict(issue_payload)
+        artifacts = issue.metadata.get("implicated_artifacts", [])
+        plan = build_resolution_plan(
+            issue,
+            artifacts=artifacts if isinstance(artifacts, list) else [],
+            evals=store.list_evals_for_issue(issue.issue_id),
+            validations=store.list_validations_for_issue(issue.issue_id),
+            patches=store.list_patch_bundles_for_issue(issue.issue_id),
+            gate_reports=store.list_gate_reports_for_issue(issue.issue_id),
+        )
+        paths = write_resolution_plan(root, plan)
+        store.upsert_resolution_plan(plan.to_dict())
+    finally:
+        store.close()
+
+    print(resolution_plan_markdown(plan))
+    print("")
+    print(f"Wrote resolution plan: {paths['markdown'].relative_to(root)}")
     return 0
 
 
@@ -1122,6 +1159,17 @@ def command_gate(args: argparse.Namespace) -> int:
             store.upsert_refinement_operation(updated_operation.to_dict())
         store.upsert_replay_report(replay_report.to_dict())
         store.upsert_gate_report(report.to_dict())
+        implicated_artifacts = issue.get("metadata", {}).get("implicated_artifacts", [])
+        plan = build_resolution_plan(
+            Issue.from_dict(issue),
+            artifacts=implicated_artifacts if isinstance(implicated_artifacts, list) else [],
+            evals=evals,
+            validations=validations,
+            patches=[replace(patch, status=patch_status).to_dict()],
+            gate_reports=[report.to_dict()],
+        )
+        write_resolution_plan(root, plan)
+        store.upsert_resolution_plan(plan.to_dict())
     finally:
         store.close()
 
@@ -1731,6 +1779,8 @@ def run(argv: list[str] | None = None) -> int:
         return command_issues_list(args)
     if args.command == "issues" and args.issue_command == "show":
         return command_issues_show(args)
+    if args.command == "issues" and args.issue_command == "resolution-plan":
+        return command_issues_resolution_plan(args)
     if args.command == "evals" and args.eval_command == "list":
         return command_evals_list(args)
     if args.command == "evals" and args.eval_command == "show":

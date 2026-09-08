@@ -16,6 +16,7 @@ from loopforge.evals.generator import generate_eval_for_issue
 from loopforge.evals.validator import validate_evaluator
 from loopforge.issues.miner import mine_issues
 from loopforge.issues.report import write_issue_report
+from loopforge.issues.resolution import build_resolution_plan, write_resolution_plan
 from loopforge.state.graph import build_harness_state_snapshot, write_harness_state_snapshot
 from loopforge.trajectories.builder import build_trajectory
 
@@ -30,6 +31,7 @@ class ShadowRunResult:
     issue_count: int
     eval_count: int
     validation_count: int
+    resolution_count: int
     report_paths: list[Path]
 
 
@@ -65,6 +67,7 @@ def run_shadow_pipeline(
         reports = []
         eval_count = 0
         validation_count = 0
+        resolution_count = 0
         for issue in issues:
             diagnosis_payload = issue.metadata.get("diagnosis")
             if isinstance(diagnosis_payload, dict):
@@ -113,6 +116,16 @@ def run_shadow_pipeline(
                 )
             issue_dict = issue.to_dict()
             store.upsert_issue(issue_dict)
+            issue_artifacts = issue.metadata.get("implicated_artifacts", [])
+            plan = build_resolution_plan(
+                issue,
+                artifacts=issue_artifacts if isinstance(issue_artifacts, list) else [],
+                evals=store.list_evals_for_issue(issue.issue_id),
+                validations=store.list_validations_for_issue(issue.issue_id),
+            )
+            plan_paths = write_resolution_plan(root, plan)
+            store.upsert_resolution_plan(plan.to_dict())
+            resolution_count += 1
             store.add_issue_event(
                 {
                     "schema_version": "1",
@@ -124,6 +137,7 @@ def run_shadow_pipeline(
                 }
             )
             reports.append(write_issue_report(root, issue))
+            reports.append(plan_paths["markdown"])
     finally:
         store.close()
 
@@ -136,5 +150,6 @@ def run_shadow_pipeline(
         issue_count=len(issues),
         eval_count=eval_count,
         validation_count=validation_count,
+        resolution_count=resolution_count,
         report_paths=reports,
     )

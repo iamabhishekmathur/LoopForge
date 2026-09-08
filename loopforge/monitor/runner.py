@@ -94,6 +94,7 @@ def run_monitor_once(root: Path, window: str, trace_path: str | None) -> Monitor
                 "issues": result.issue_count,
                 "evals": result.eval_count,
                 "validations": result.validation_count,
+                "resolutions": result.resolution_count,
             },
             metadata={
                 "mode": "scheduled_shadow",

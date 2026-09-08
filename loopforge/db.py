@@ -30,6 +30,15 @@ create table if not exists issues (
   payload_json text not null
 );
 
+create table if not exists resolution_plans (
+  plan_id text primary key,
+  issue_id text not null,
+  status text not null,
+  generated_at text not null,
+  payload_json text not null,
+  foreign key(issue_id) references issues(issue_id)
+);
+
 create table if not exists issue_events (
   event_id text primary key,
   issue_id text not null,
@@ -290,6 +299,44 @@ class Store:
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None
 
+    def upsert_resolution_plan(self, plan: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into resolution_plans(plan_id, issue_id, status, generated_at, payload_json)
+            values (?, ?, ?, ?, ?)
+            on conflict(plan_id) do update set
+              issue_id=excluded.issue_id,
+              status=excluded.status,
+              generated_at=excluded.generated_at,
+              payload_json=excluded.payload_json
+            """,
+            (
+                plan["plan_id"],
+                plan["issue_id"],
+                plan["status"],
+                plan["generated_at"],
+                json.dumps(plan, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def get_resolution_plan_for_issue(self, issue_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            """
+            select payload_json from resolution_plans
+            where issue_id = ?
+            order by generated_at desc
+            """,
+            (issue_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def list_resolution_plans(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from resolution_plans order by generated_at desc"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
     def list_harness_artifacts(self) -> list[dict[str, Any]]:
         rows = self.connection.execute(
             "select payload_json from harness_artifacts order by artifact_type, path"
@@ -429,6 +476,13 @@ class Store:
         ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
 
+    def list_patch_bundles_for_issue(self, issue_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from patch_bundles where issue_id = ? order by patch_id",
+            (issue_id,),
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
     def get_patch_bundle(self, patch_id: str) -> dict[str, Any] | None:
         row = self.connection.execute(
             "select payload_json from patch_bundles where patch_id = ?",
@@ -521,6 +575,19 @@ class Store:
     def list_gate_reports(self) -> list[dict[str, Any]]:
         rows = self.connection.execute(
             "select payload_json from gate_reports order by gate_report_id"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def list_gate_reports_for_issue(self, issue_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            select g.payload_json
+            from gate_reports g
+            join patch_bundles p on p.patch_id = g.patch_id
+            where p.issue_id = ?
+            order by g.gate_report_id
+            """,
+            (issue_id,),
         ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
 

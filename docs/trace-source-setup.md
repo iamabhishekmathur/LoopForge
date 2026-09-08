@@ -288,6 +288,7 @@ loopforge readiness
 loopforge monitor --once --last 24h
 loopforge queue run-next
 loopforge issues list
+loopforge issues resolution-plan ISSUE-0001
 ```
 
 Healthy first run:
@@ -296,6 +297,7 @@ Healthy first run:
 - `readiness` passes.
 - `monitor --once` reports nonzero `traces`.
 - If failures recur, `issues list` shows at least one issue.
+- `issues resolution-plan ISSUE_ID` explains the likely root cause, candidate actions, and any evidence still needed before release.
 - `.loopforge/connectors/SOURCE_ID-sync.json` is written.
 
 ## Common Problems
@@ -333,5 +335,5 @@ For teams trying LoopForge against an existing agent codebase:
 1. Configure a recorded provider fixture first.
 2. Run `loopforge readiness`.
 3. Run `loopforge monitor --once --last 24h`.
-4. Inspect `issues show`, `evals show`, and `refinements preview`.
+4. Inspect `issues show`, `issues resolution-plan`, `evals show`, and `refinements preview`.
 5. Only then move to a hosted provider endpoint with credentials.
