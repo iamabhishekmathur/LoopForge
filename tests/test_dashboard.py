@@ -57,6 +57,7 @@ def test_render_dashboard_escapes_issue_content() -> None:
             "replays": [],
             "prs": [],
             "manifests": [],
+            "states": [],
         }
     )
 
@@ -78,3 +79,4 @@ def test_dashboard_build_writes_fixture_html(tmp_path: Path) -> None:
     assert "ISSUE-0001" in html
     assert "Monitor Runs" in html
     assert "Refinement Operations" in html
+    assert "Harness States" in html

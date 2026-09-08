@@ -62,16 +62,22 @@ def test_discover_command_persists_index_and_artifacts(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "Discovered 3 harness artifacts" in result.stdout
     assert "manifest:" in result.stdout
+    assert "state:" in result.stdout
 
     index_path = project_root / ".loopforge" / "index" / "harness-artifacts.json"
     manifest_path = project_root / ".loopforge" / "manifests" / "runtime-harness-manifest.json"
+    state_path = project_root / ".loopforge" / "states" / "latest-harness-state.json"
     assert index_path.is_file()
     assert manifest_path.is_file()
+    assert state_path.is_file()
     index = json.loads(index_path.read_text(encoding="utf-8"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    state = json.loads(state_path.read_text(encoding="utf-8"))
     assert index["artifact_count"] == 3
     assert manifest["metadata"]["artifact_count"] == 3
     assert manifest["tool_side_effect_classes"]["cancel_subscription"] == "destructive"
+    assert state["metadata"]["runtime_manifest_id"] == manifest["manifest_id"]
+    assert state["metadata"]["artifact_count"] == 3
 
     with sqlite3.connect(project_root / ".loopforge" / "db.sqlite") as connection:
         artifact_count = connection.execute(
@@ -80,9 +86,13 @@ def test_discover_command_persists_index_and_artifacts(tmp_path: Path) -> None:
         manifest_count = connection.execute(
             "select count(*) from runtime_manifests"
         ).fetchone()[0]
+        state_count = connection.execute(
+            "select count(*) from harness_states"
+        ).fetchone()[0]
 
     assert artifact_count == 3
     assert manifest_count == 1
+    assert state_count == 1
 
 
 def test_manifest_commands_write_and_show_runtime_manifest(tmp_path: Path) -> None:
@@ -91,6 +101,8 @@ def test_manifest_commands_write_and_show_runtime_manifest(tmp_path: Path) -> No
     write = run_loopforge(["manifest", "write"], project_root)
     manifest_list = run_loopforge(["manifest", "list"], project_root)
     manifest_show = run_loopforge(["manifest", "show"], project_root)
+    states_list = run_loopforge(["states", "list"], project_root)
+    states_show = run_loopforge(["states", "show"], project_root)
 
     assert write.returncode == 0, write.stderr
     assert "Wrote runtime manifest runtime-" in write.stdout
@@ -98,6 +110,10 @@ def test_manifest_commands_write_and_show_runtime_manifest(tmp_path: Path) -> No
     assert "artifacts=3" in manifest_list.stdout
     assert manifest_show.returncode == 0
     assert '"tool_side_effect_classes"' in manifest_show.stdout
+    assert states_list.returncode == 0
+    assert "state-" in states_list.stdout
+    assert states_show.returncode == 0
+    assert '"artifact_refs"' in states_show.stdout
 
 
 def test_discover_finds_skill_and_policy_style_artifacts(tmp_path: Path) -> None:

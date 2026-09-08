@@ -17,12 +17,14 @@ from .discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
 from .issues.report import issue_report_markdown, write_issue_report
 from .models.eval import EvalExample, EvaluatorDefinition, EvaluatorValidationRecord
+from .models.harness import HarnessArtifact
 from .models.issue import Issue
 from .models.monitor import MonitorRun
 from .models.patch import PatchBundle, GateReport
 from .models.pr import PullRequestArtifact
 from .models.refinement import RefinementOperation
 from .models.runtime import RuntimeHarnessManifest
+from .models.state import HarnessStateSnapshot
 from .paths import PROJECT_CONFIG, find_project_root, require_project_root
 from .patching.generator import generate_patch_for_issue, write_patch_bundle
 from .prs.generator import generate_pr_artifact, pr_markdown, write_pr_artifact
@@ -33,6 +35,7 @@ from .replay.runner import run_replay, write_replay_report
 from .schemas import validate_all_schemas
 from .monitor.runner import iter_monitor_runs, parse_schedule_seconds
 from .shadow.runner import run_shadow_pipeline
+from .state.graph import build_harness_state_snapshot, write_harness_state_snapshot
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,6 +75,12 @@ def build_parser() -> argparse.ArgumentParser:
     manifest_subparsers.add_parser("list", help="List runtime manifests.")
     manifest_show = manifest_subparsers.add_parser("show", help="Show one runtime manifest.")
     manifest_show.add_argument("manifest_id", nargs="?")
+
+    states = subparsers.add_parser("states", help="Inspect harness state snapshots.")
+    state_subparsers = states.add_subparsers(dest="state_command", required=True)
+    state_subparsers.add_parser("list", help="List harness state snapshots.")
+    state_show = state_subparsers.add_parser("show", help="Show one harness state snapshot.")
+    state_show.add_argument("state_id", nargs="?")
 
     connectors = subparsers.add_parser("connectors", help="Inspect trace connectors.")
     connector_subparsers = connectors.add_subparsers(dest="connector_command", required=True)
@@ -227,16 +236,19 @@ def command_onboard(args: argparse.Namespace) -> int:
     index_path = write_harness_index(root, artifacts)
     manifest = build_runtime_manifest(root, artifacts)
     manifest_path = write_runtime_manifest(root, manifest)
+    state, state_paths = _write_discovered_harness_state(root, artifacts, manifest)
     store = Store.for_project(root)
     try:
         for artifact in artifacts:
             store.upsert_harness_artifact(artifact.to_dict())
         store.upsert_runtime_manifest(manifest.to_dict())
+        store.upsert_harness_state(state.to_dict())
     finally:
         store.close()
     print(f"Discovery: {len(artifacts)} artifacts")
     print(f"  index: {index_path.relative_to(root)}")
     print(f"  manifest: {manifest_path.relative_to(root)}")
+    print(f"  state: {state_paths['state'].relative_to(root)}")
 
     if args.skip_monitor:
         print("Monitor: skipped")
@@ -280,17 +292,20 @@ def command_discover(_: argparse.Namespace) -> int:
     index_path = write_harness_index(root, artifacts)
     manifest = build_runtime_manifest(root, artifacts)
     manifest_path = write_runtime_manifest(root, manifest)
+    state, state_paths = _write_discovered_harness_state(root, artifacts, manifest)
     store = Store.for_project(root)
     try:
         for artifact in artifacts:
             store.upsert_harness_artifact(artifact.to_dict())
         store.upsert_runtime_manifest(manifest.to_dict())
+        store.upsert_harness_state(state.to_dict())
     finally:
         store.close()
 
     print(f"Discovered {len(artifacts)} harness artifacts")
     print(f"  index: {index_path.relative_to(root)}")
     print(f"  manifest: {manifest_path.relative_to(root)}")
+    print(f"  state: {state_paths['state'].relative_to(root)}")
     for artifact in artifacts:
         print(f"  {artifact.artifact_type:18} {artifact.confidence:.2f} {artifact.path}")
     return 0
@@ -308,14 +323,17 @@ def command_manifest_write(_: argparse.Namespace) -> int:
     artifacts = discover_harness_artifacts(root)
     manifest = build_runtime_manifest(root, artifacts)
     path = write_runtime_manifest(root, manifest)
+    state, state_paths = _write_discovered_harness_state(root, artifacts, manifest)
     store = Store.for_project(root)
     try:
         store.upsert_runtime_manifest(manifest.to_dict())
+        store.upsert_harness_state(state.to_dict())
     finally:
         store.close()
 
     print(f"Wrote runtime manifest {manifest.manifest_id}")
     print(f"  path: {path.relative_to(root)}")
+    print(f"  state: {state_paths['state'].relative_to(root)}")
     print(f"  artifacts: {len(artifacts)}")
     return 0
 
@@ -359,6 +377,49 @@ def command_manifest_show(args: argparse.Namespace) -> int:
         return 1
 
     print(json.dumps(RuntimeHarnessManifest.from_dict(manifest).to_dict(), indent=2, sort_keys=True))
+    return 0
+
+
+def command_states_list(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        states = store.list_harness_states()
+    finally:
+        store.close()
+
+    if not states:
+        print("No harness state snapshots found.")
+        return 0
+
+    for state in states:
+        print(
+            f"{state['state_id']}  {state['source']:18}  "
+            f"confidence={float(state['confidence']):.2f}  "
+            f"artifacts={len(state.get('artifact_refs') or [])}  "
+            f"operations={len(state.get('operation_ids') or [])}"
+        )
+    return 0
+
+
+def command_states_show(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    state_id = args.state_id
+    store = Store.for_project(root)
+    try:
+        if state_id:
+            state = store.get_harness_state(state_id)
+        else:
+            states = store.list_harness_states()
+            state = states[0] if states else None
+    finally:
+        store.close()
+
+    if state is None:
+        print("error: harness state not found", file=sys.stderr)
+        return 1
+
+    print(json.dumps(HarnessStateSnapshot.from_dict(state).to_dict(), indent=2, sort_keys=True))
     return 0
 
 
@@ -512,6 +573,16 @@ def _monitor_run_detail(run: MonitorRun) -> str:
         lines.extend(["", "## Reports", ""])
         lines.extend(f"- `{report}`" for report in reports)
     return "\n".join(lines)
+
+
+def _write_discovered_harness_state(
+    root: Path,
+    artifacts: list[HarnessArtifact],
+    manifest: RuntimeHarnessManifest,
+) -> tuple[HarnessStateSnapshot, dict[str, Path]]:
+    state = build_harness_state_snapshot(artifacts, manifest)
+    paths = write_harness_state_snapshot(root, state)
+    return state, paths
 
 
 def command_issues_list(_: argparse.Namespace) -> int:
@@ -1108,6 +1179,10 @@ def run(argv: list[str] | None = None) -> int:
         return command_manifest_list(args)
     if args.command == "manifest" and args.manifest_command == "show":
         return command_manifest_show(args)
+    if args.command == "states" and args.state_command == "list":
+        return command_states_list(args)
+    if args.command == "states" and args.state_command == "show":
+        return command_states_show(args)
     if args.command == "connectors" and args.connector_command == "list":
         return command_connectors_list(args)
     if args.command == "connectors" and args.connector_command == "doctor":

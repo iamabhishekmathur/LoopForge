@@ -134,6 +134,13 @@ create table if not exists runtime_manifests (
   created_at text not null,
   payload_json text not null
 );
+
+create table if not exists harness_states (
+  state_id text primary key,
+  source text not null,
+  created_at text not null,
+  payload_json text not null
+);
 """
 
 
@@ -607,5 +614,37 @@ class Store:
         row = self.connection.execute(
             "select payload_json from runtime_manifests where manifest_id = ?",
             (manifest_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def upsert_harness_state(self, state: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into harness_states(state_id, source, created_at, payload_json)
+            values (?, ?, ?, ?)
+            on conflict(state_id) do update set
+              source=excluded.source,
+              created_at=excluded.created_at,
+              payload_json=excluded.payload_json
+            """,
+            (
+                state["state_id"],
+                state["source"],
+                state["created_at"],
+                json.dumps(state, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_harness_states(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from harness_states order by created_at desc"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def get_harness_state(self, state_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from harness_states where state_id = ?",
+            (state_id,),
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None

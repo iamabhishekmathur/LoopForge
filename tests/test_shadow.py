@@ -99,6 +99,9 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
         manifest_count = connection.execute(
             "select count(*) from runtime_manifests"
         ).fetchone()[0]
+        state_count = connection.execute(
+            "select count(*) from harness_states"
+        ).fetchone()[0]
 
     assert trace_count == 10
     assert trajectory_count == 10
@@ -111,6 +114,7 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
     assert evaluator_count == 1
     assert validation_count == 1
     assert manifest_count == 1
+    assert state_count == 1
 
 
 def test_issues_commands_show_shadow_results(tmp_path: Path) -> None:

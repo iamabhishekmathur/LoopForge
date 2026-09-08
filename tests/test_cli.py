@@ -74,6 +74,7 @@ def test_help_includes_discover_and_shadow(tmp_path: Path) -> None:
     assert "onboard" in result.stdout
     assert "dashboard" in result.stdout
     assert "manifest" in result.stdout
+    assert "states" in result.stdout
     assert "connectors" in result.stdout
     assert "shadow" in result.stdout
     assert "monitor" in result.stdout

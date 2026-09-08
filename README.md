@@ -74,6 +74,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Failure Diagnosis Schema](schemas/failure-diagnosis.schema.json)
 - [Gate Report Schema](schemas/gate-report.schema.json)
 - [Harness Artifact Schema](schemas/harness-artifact.schema.json)
+- [Harness State Schema](schemas/harness-state.schema.json)
 - [Issue Event Schema](schemas/issue-event.schema.json)
 - [Issue Schema](schemas/issue.schema.json)
 - [Monitor Run Schema](schemas/monitor-run.schema.json)
@@ -93,6 +94,7 @@ The first 30 minute onboarding experience should build trust before asking for b
 loopforge init
 loopforge connectors doctor
 loopforge discover
+loopforge states list
 loopforge shadow --last 24h
 loopforge issues show ISSUE_ID
 loopforge eval add --from-issue ISSUE_ID
@@ -140,6 +142,7 @@ python -m loopforge connectors list
 python -m loopforge connectors doctor
 python -m loopforge discover
 python -m loopforge manifest show
+python -m loopforge states list
 python -m loopforge monitor --once
 python -m loopforge monitor --list-runs
 python -m loopforge dashboard build

@@ -16,6 +16,7 @@ from loopforge.evals.generator import generate_eval_for_issue
 from loopforge.evals.validator import validate_evaluator
 from loopforge.issues.miner import mine_issues
 from loopforge.issues.report import write_issue_report
+from loopforge.state.graph import build_harness_state_snapshot, write_harness_state_snapshot
 from loopforge.trajectories.builder import build_trajectory
 
 
@@ -45,9 +46,12 @@ def run_shadow_pipeline(
         write_harness_index(root, artifacts)
         manifest = build_runtime_manifest(root, artifacts)
         write_runtime_manifest(root, manifest)
+        state = build_harness_state_snapshot(artifacts, manifest)
+        write_harness_state_snapshot(root, state)
         for artifact in artifacts:
             store.upsert_harness_artifact(artifact.to_dict())
         store.upsert_runtime_manifest(manifest.to_dict())
+        store.upsert_harness_state(state.to_dict())
 
         trajectories = []
         for trace in traces:
