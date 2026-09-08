@@ -1038,6 +1038,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - SQLite metadata store.
 - Automated trace ingestion from configured sources.
 - Codebase discovery and semantic harness index.
+- Semantic index metadata for artifact tokens, structural anchors, import references, and retrieval text.
 - Runtime harness manifest schema and trace linkage.
 - Runtime manifest emission SDK helpers.
 - Harness state graph sufficient to connect traces, manifests, artifacts, issues, patches, gates, PRs, and refinement operations.
@@ -1054,8 +1055,9 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - LLM-assisted diagnosis with local redaction.
 - Candidate patch generation for Markdown and YAML harness artifacts.
 - Component-specific refiner passes for prompts, Skills, tools, policies, evals, and memory-interface policies.
+- Local probabilistic refiner-pass ranking with provider-neutral model interface.
 - Subagent-spec recommendations for repeated delegation or specialist-review patterns.
-- Async refiner queue with run budgets, retry, cancellation, and dead-letter status.
+- Async refiner queue with run budgets, retry, cancellation, dead-letter status, and a local worker that drafts patch/refinement artifacts from queued monitor runs.
 - Patch concentration gate.
 - Eval generation in YAML/JSONL.
 - AI-drafted evaluator generation and validation records.

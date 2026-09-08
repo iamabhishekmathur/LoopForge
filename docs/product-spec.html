@@ -1677,6 +1677,7 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>SQLite metadata store.</li>
 <li>Automated trace ingestion from configured sources.</li>
 <li>Codebase discovery and semantic harness index.</li>
+<li>Semantic index metadata for artifact tokens, structural anchors, import references, and retrieval text.</li>
 <li>Runtime harness manifest schema and trace linkage.</li>
 <li>Runtime manifest emission SDK helpers.</li>
 <li>Harness state graph sufficient to connect traces, manifests, artifacts, issues, patches, gates, PRs, and refinement operations.</li>
@@ -1693,8 +1694,9 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>LLM-assisted diagnosis with local redaction.</li>
 <li>Candidate patch generation for Markdown and YAML harness artifacts.</li>
 <li>Component-specific refiner passes for prompts, Skills, tools, policies, evals, and memory-interface policies.</li>
+<li>Local probabilistic refiner-pass ranking with provider-neutral model interface.</li>
 <li>Subagent-spec recommendations for repeated delegation or specialist-review patterns.</li>
-<li>Async refiner queue with run budgets, retry, cancellation, and dead-letter status.</li>
+<li>Async refiner queue with run budgets, retry, cancellation, dead-letter status, and a local worker that drafts patch/refinement artifacts from queued monitor runs.</li>
 <li>Patch concentration gate.</li>
 <li>Eval generation in YAML/JSONL.</li>
 <li>AI-drafted evaluator generation and validation records.</li>

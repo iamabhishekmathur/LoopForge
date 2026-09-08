@@ -111,6 +111,7 @@ loopforge pr --eval-only
 The broader MVP can still support gated behavior-patch PRs:
 
 ```text
+loopforge monitor --once
 loopforge propose ISSUE_ID
 loopforge propose ISSUE_ID --layer system_prompt
 loopforge refinements list
@@ -126,6 +127,8 @@ loopforge rollback PATCH_ID
 loopforge pr --dry-run PATCH_ID
 loopforge pr open PR_ID
 ```
+
+`loopforge monitor --once` writes a queued refiner job after trace ingestion and issue mining. `loopforge queue run-next` processes that job asynchronously and drafts patch/refinement artifacts without blocking trace collection.
 
 For teams using OpenTelemetry, OpenInference, Langfuse, Phoenix, LangSmith, Braintrust, or custom trace JSON, monitoring and ingestion should be adapter-based.
 

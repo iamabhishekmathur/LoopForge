@@ -94,5 +94,6 @@ def test_monitor_once_records_run_and_history(tmp_path: Path) -> None:
     assert "monitor_schedule" in queue_list.stdout
     assert queue_run.returncode == 0
     assert "Status: `succeeded`" in queue_run.stdout
+    assert "Drafted patches: `1`" in queue_run.stdout
     assert queue_cancel.returncode == 0
     assert "Status: `canceled`" in queue_cancel.stdout

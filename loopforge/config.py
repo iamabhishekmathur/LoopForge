@@ -46,6 +46,12 @@ monitor:
   max_prs_per_day: 3
   autonomy_level: 1
 
+refinement:
+  enabled: true
+  cadence: "after_monitor_run"
+  default_scope: workflow
+  max_candidate_operations: 5
+
 analysis:
   max_traces_per_scan: 1000
   max_full_traces_per_scan: 75
@@ -236,6 +242,11 @@ def configured_monitor_schedule(root: Path) -> str:
 
 def configured_monitor_trace_window(root: Path) -> str:
     return _first_scalar_config_value(root, "trace_window") or "24 hours"
+
+
+def configured_refiner_target_scope(root: Path) -> str:
+    value = _first_scalar_config_value(root, "default_scope") or "workflow"
+    return value if value in {"shadow", "workflow", "project", "org"} else "workflow"
 
 
 def _first_scalar_config_value(root: Path, key: str) -> str | None:

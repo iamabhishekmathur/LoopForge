@@ -7,7 +7,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from loopforge.db import Store
+from loopforge.models.issue import Issue
 from loopforge.models.queue import RefinerQueueItem
+from loopforge.patching.generator import write_patch_bundle
+from loopforge.refinements.ledger import write_refinement_operations
+from loopforge.refinements.refiner import refine_issue
 
 
 DEFAULT_REFINER_BUDGET = {
@@ -59,13 +63,15 @@ def run_next_refiner_job(root: Path) -> RefinerQueueItem | None:
             attempt_count=item.attempt_count + 1,
         )
         store.upsert_refiner_queue_item(running.to_dict())
+        result = _draft_refinements_for_queue_item(root, store, running)
         finished = replace(
             running,
             status="succeeded",
             finished_at=_now(),
             metadata={
                 **running.metadata,
-                "result": "queued refinement trigger recorded; full async worker can attach drafts",
+                "result": "drafted refinement work from queued monitor trigger",
+                **result,
             },
         )
         store.upsert_refiner_queue_item(finished.to_dict())
@@ -101,3 +107,56 @@ def cancel_refiner_job(root: Path, queue_item_id: str) -> RefinerQueueItem | Non
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _draft_refinements_for_queue_item(
+    root: Path,
+    store: Store,
+    item: RefinerQueueItem,
+) -> dict[str, object]:
+    max_operations = item.budget.get("max_candidate_operations", 5)
+    drafted_patches = 0
+    drafted_operations = 0
+    skipped_issues = 0
+    processed_issue_ids: list[str] = []
+    abstentions: list[dict[str, object]] = []
+
+    for issue_payload in store.list_issues():
+        if drafted_operations >= max_operations:
+            break
+        issue = Issue.from_dict(issue_payload)
+        if issue.status not in {"open", "proposed"}:
+            skipped_issues += 1
+            continue
+        eval_ids = [
+            str(eval_payload["eval_id"])
+            for eval_payload in store.list_evals_for_issue(issue.issue_id)
+        ]
+        draft = refine_issue(root, issue, eval_ids)
+        if draft.patch is None:
+            abstentions.append(
+                {
+                    "issue_id": issue.issue_id,
+                    "reason": draft.reason,
+                    "abstentions": draft.abstentions,
+                }
+            )
+            continue
+        write_patch_bundle(root, draft.patch)
+        store.upsert_patch_bundle(draft.patch.to_dict())
+        write_refinement_operations(root, draft.operations)
+        for operation in draft.operations:
+            store.upsert_refinement_operation(operation.to_dict())
+        proposed_issue = replace(issue, status="proposed")
+        store.upsert_issue(proposed_issue.to_dict())
+        drafted_patches += 1
+        drafted_operations += len(draft.operations)
+        processed_issue_ids.append(issue.issue_id)
+
+    return {
+        "drafted_patches": drafted_patches,
+        "drafted_operations": drafted_operations,
+        "processed_issue_ids": processed_issue_ids,
+        "skipped_issues": skipped_issues,
+        "abstentions": abstentions[:5],
+    }

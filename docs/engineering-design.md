@@ -178,8 +178,9 @@ monitor:
 refinement:
   enabled: true
   cadence: "after_monitor_run"
+  default_scope: workflow
   min_operation_confidence: 0.82
-  max_operations_per_run: 5
+  max_candidate_operations: 5
   detect_patch_concentration: true
   post_merge_confirmation_window: "7 days"
   component_passes:
@@ -716,6 +717,9 @@ Discovery outputs:
 - Harness artifact graph.
 - Artifact summaries.
 - Artifact confidence scores.
+- Semantic tokens and embedding text for artifact retrieval.
+- Structural anchors for headings, functions, classes, and exported symbols.
+- Import references for codebase grounding and relationship inference.
 - Eval coverage map.
 - Issue-to-artifact impact map.
 - Runtime manifest to code artifact map.
@@ -809,6 +813,13 @@ Refinement scope:
 
 The refiner may draft at any scope, but higher scopes require more evidence, stronger gates, and stricter reviewer routing. MVP should default new repositories to `shadow` and `workflow` recommendations during onboarding.
 
+Refiner model interface:
+
+- The refiner pass ranker should expose a provider-neutral interface that scores candidate component passes.
+- MVP includes a local probabilistic fallback that scores issue confidence, implicated artifact confidence, trace evidence count, recommended patch layers, preferred layer, and risk.
+- Hosted or LLM-backed rankers can replace the local scorer only if they return structured candidates with score, rationale, and evidence features.
+- Ranked alternatives should be persisted in patch metadata for reviewer audit and later learning from acceptance or rejection.
+
 Component-specific refiner passes:
 
 | Pass | Emits operations for | Common operation types | Key gates |
@@ -864,6 +875,7 @@ Queue item fields:
 Execution rules:
 
 - Never block production agent serving or trace ingestion on refiner completion.
+- In local MVP, `queue run-next` should load queued monitor output, select eligible open/proposed issues, rank component passes with the refiner model interface, draft patch bundles, write refinement operations, and mark the issue proposed.
 - Coalesce duplicate queued jobs for the same trace window and artifact set.
 - Allow cancellation before patch generation.
 - Move repeatedly failing jobs to dead-letter status with a visible report.

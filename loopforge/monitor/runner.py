@@ -11,6 +11,7 @@ import time
 from loopforge.config import (
     configured_monitor_schedule,
     configured_monitor_trace_window,
+    configured_refiner_target_scope,
     configured_trace_path,
 )
 from loopforge.db import Store
@@ -71,7 +72,7 @@ def run_monitor_once(root: Path, window: str, trace_path: str) -> MonitorRun:
             root,
             trigger="monitor_schedule",
             trace_window=window,
-            target_scope="workflow",
+            target_scope=configured_refiner_target_scope(root),
             metadata={
                 "monitor_run_id": run_id,
                 "trace_path": result.trace_path,

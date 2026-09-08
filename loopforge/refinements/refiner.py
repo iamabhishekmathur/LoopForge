@@ -10,6 +10,7 @@ from loopforge.models.patch import PatchBundle
 from loopforge.models.refinement import RefinementOperation
 from loopforge.patching.generator import generate_patch_for_issue
 from loopforge.refinements.ledger import refinement_operations_for_patch
+from loopforge.refinements.model import LocalProbabilisticRefinerModel, RefinerModel
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,8 @@ class ComponentRefinerPass:
     component_type: str
     layer: str
     risk: str
+    score: float = 0.0
+    score_rationale: str = ""
 
 
 @dataclass(frozen=True)
@@ -51,8 +54,9 @@ def refine_issue(
     eval_ids: list[str],
     *,
     preferred_layer: str | None = None,
+    model: RefinerModel | None = None,
 ) -> RefinementDraft:
-    passes = _ordered_passes(issue, preferred_layer)
+    passes = _ordered_passes(issue, preferred_layer, model or LocalProbabilisticRefinerModel())
     abstentions: list[dict[str, str]] = []
     for refiner_pass in passes:
         patch = generate_patch_for_issue(
@@ -78,6 +82,16 @@ def refine_issue(
                 "component_pass": refiner_pass.name,
                 "component_type": refiner_pass.component_type,
                 "component_risk": refiner_pass.risk,
+                "component_score": getattr(refiner_pass, "score", None),
+                "component_score_rationale": getattr(refiner_pass, "score_rationale", ""),
+                "ranked_component_passes": [
+                    {
+                        "pass": candidate.name,
+                        "layer": candidate.layer,
+                        "score": candidate.score,
+                    }
+                    for candidate in passes
+                ],
                 "abstained_passes": abstentions,
             },
         )
@@ -102,18 +116,40 @@ def refine_issue(
 def _ordered_passes(
     issue: Issue,
     preferred_layer: str | None,
+    model: RefinerModel,
 ) -> list[ComponentRefinerPass]:
     by_layer = {refiner_pass.layer: refiner_pass for refiner_pass in REFINER_PASSES}
     if preferred_layer:
-        return [by_layer[preferred_layer]] if preferred_layer in by_layer else []
+        if preferred_layer not in by_layer:
+            return []
+        base_passes = [by_layer[preferred_layer]]
+    else:
+        base_passes = REFINER_PASSES
 
-    layers = [refiner_pass.layer for refiner_pass in REFINER_PASSES]
-    layers.extend(layer for layer in issue.recommended_patch_layers if layer in by_layer)
-    deduped = []
-    seen = set()
-    for layer in layers:
-        if layer in seen:
-            continue
-        seen.add(layer)
-        deduped.append(by_layer[layer])
-    return deduped
+    candidates = model.score_passes(
+        issue,
+        [
+            {
+                "name": refiner_pass.name,
+                "component_type": refiner_pass.component_type,
+                "layer": refiner_pass.layer,
+                "risk": refiner_pass.risk,
+            }
+            for refiner_pass in base_passes
+        ],
+        preferred_layer=preferred_layer,
+    )
+    ranked = []
+    for candidate in candidates:
+        refiner_pass = by_layer[candidate.layer]
+        ranked.append(
+            ComponentRefinerPass(
+                name=refiner_pass.name,
+                component_type=refiner_pass.component_type,
+                layer=refiner_pass.layer,
+                risk=refiner_pass.risk,
+                score=candidate.score,
+                score_rationale=candidate.rationale,
+            )
+        )
+    return ranked

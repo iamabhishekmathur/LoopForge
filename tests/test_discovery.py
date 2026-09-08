@@ -51,6 +51,8 @@ def test_discover_harness_artifacts_finds_fixture_harness() -> None:
     assert len(by_type["tool_definition"].metadata["sha256"]) == 64
     assert by_type["tool_definition"].metadata["line_count"] > 0
     assert "side_effect_class" in by_type["tool_definition"].metadata["signals"]
+    assert "destructive" in by_type["tool_definition"].metadata["semantic_tokens"]
+    assert by_type["tool_definition"].metadata["embedding_text"]
     assert by_type["permission_policy"].relationships[0]["type"] == "governs_tool"
 
 
@@ -139,3 +141,5 @@ def test_discover_finds_skill_and_policy_style_artifacts(tmp_path: Path) -> None
         "routing_policy",
         "context_policy",
     }
+    by_type = {artifact.artifact_type: artifact for artifact in artifacts}
+    assert by_type["skill"].metadata["anchors"][0]["text"] == "Cancel Skill"

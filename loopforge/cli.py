@@ -709,6 +709,18 @@ def _queue_item_detail(item: RefinerQueueItem) -> str:
         lines.append(f"Finished: `{item.finished_at}`")
     if item.last_error:
         lines.extend(["", "## Error", "", item.last_error])
+    result_keys = ["drafted_patches", "drafted_operations", "processed_issue_ids"]
+    if any(key in item.metadata for key in result_keys):
+        lines.extend(
+            [
+                "",
+                "## Result",
+                "",
+                f"- Drafted patches: `{item.metadata.get('drafted_patches', 0)}`",
+                f"- Drafted operations: `{item.metadata.get('drafted_operations', 0)}`",
+                f"- Processed issues: `{item.metadata.get('processed_issue_ids', [])}`",
+            ]
+        )
     lines.extend(
         [
             "",

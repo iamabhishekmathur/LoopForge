@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -219,6 +220,10 @@ def _content_metadata(content: str) -> dict[str, object]:
         "line_count": len(lines),
         "size_bytes": len(content.encode("utf-8")),
         "signals": _content_signals(content),
+        "semantic_tokens": _semantic_tokens(content),
+        "anchors": _anchors(content),
+        "imports": _imports(content),
+        "embedding_text": _embedding_text(content),
     }
 
 
@@ -239,6 +244,69 @@ def _content_signals(content: str) -> list[str]:
         if token in lowered:
             signals.append(token)
     return signals
+
+
+def _semantic_tokens(content: str) -> list[str]:
+    lowered = content.lower()
+    tokens = []
+    vocabulary = (
+        "authorization",
+        "confirmation",
+        "destructive",
+        "side effect",
+        "routing",
+        "retrieval",
+        "memory",
+        "evaluation",
+        "scorer",
+        "subagent",
+        "handoff",
+        "tool call",
+        "schema",
+        "context",
+    )
+    for token in vocabulary:
+        if token in lowered:
+            tokens.append(token.replace(" ", "_"))
+    return tokens
+
+
+def _anchors(content: str) -> list[dict[str, object]]:
+    anchors: list[dict[str, object]] = []
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            anchors.append(
+                {
+                    "kind": "heading",
+                    "line": line_number,
+                    "text": stripped.lstrip("#").strip(),
+                }
+            )
+        match = re.match(r"^(class|def|async def|function|export function)\s+([A-Za-z_][\w]*)", stripped)
+        if match:
+            anchors.append(
+                {
+                    "kind": "symbol",
+                    "line": line_number,
+                    "text": match.group(2),
+                }
+            )
+    return anchors[:20]
+
+
+def _imports(content: str) -> list[str]:
+    imports = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("import ", "from ")) or stripped.startswith("const ") and "require(" in stripped:
+            imports.append(stripped)
+    return imports[:20]
+
+
+def _embedding_text(content: str) -> str:
+    non_empty = [line.strip() for line in content.splitlines() if line.strip()]
+    return " ".join(non_empty[:12])[:1000]
 
 
 def _extract_scalar(content: str, key: str) -> str | None:
