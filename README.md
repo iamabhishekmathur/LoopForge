@@ -79,6 +79,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Monitor Run Schema](schemas/monitor-run.schema.json)
 - [Patch Bundle Schema](schemas/patch-bundle.schema.json)
 - [PR Artifact Schema](schemas/pr-artifact.schema.json)
+- [Replay Report Schema](schemas/replay-report.schema.json)
 - [Runtime Harness Manifest Schema](schemas/runtime-harness-manifest.schema.json)
 - [Trace Schema](schemas/trace.schema.json)
 - [Trace Trajectory Schema](schemas/trace-trajectory.schema.json)
@@ -142,6 +143,7 @@ python -m loopforge dashboard build
 python -m loopforge evals list
 python -m loopforge propose ISSUE-0001
 python -m loopforge patches list
+python -m loopforge replay PATCH-0001
 python -m loopforge gate PATCH-0001
 python -m loopforge pr --dry-run PATCH-0001
 python -m loopforge pr open PR-PATCH-0001

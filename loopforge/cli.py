@@ -27,6 +27,7 @@ from .patching.generator import generate_patch_for_issue, write_patch_bundle
 from .prs.generator import generate_pr_artifact, pr_markdown, write_pr_artifact
 from .prs.opener import PrOpenError, open_pull_request
 from .gates.runner import run_gates, write_gate_report
+from .replay.runner import run_replay, write_replay_report
 from .schemas import validate_all_schemas
 from .monitor.runner import iter_monitor_runs, parse_schedule_seconds
 from .shadow.runner import run_shadow_pipeline
@@ -117,6 +118,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     gate = subparsers.add_parser("gate", help="Run local acceptance gates for a patch bundle.")
     gate.add_argument("patch_id")
+
+    replay = subparsers.add_parser("replay", help="Run replay simulation for a patch bundle.")
+    replay.add_argument("patch_id")
 
     pr = subparsers.add_parser("pr", help="Draft or open pull request artifacts.")
     pr.add_argument("--dry-run", action="store_true", help="Write local PR JSON and Markdown only.")
@@ -659,10 +663,13 @@ def command_gate(args: argparse.Namespace) -> int:
             return 1
         evals = store.list_evals_for_issue(patch.issue_id)
         validations = store.list_validations_for_issue(patch.issue_id)
-        report = run_gates(patch, issue, evals, validations)
+        replay_report = run_replay(patch, issue, evals)
+        write_replay_report(root, replay_report)
+        report = run_gates(patch, issue, evals, validations, replay_report)
         report_path = write_gate_report(root, report)
         patch_status = "gated" if report.status in {"pass", "warn", "needs_human_review"} else "rejected"
         store.upsert_patch_bundle(replace(patch, status=patch_status).to_dict())
+        store.upsert_replay_report(replay_report.to_dict())
         store.upsert_gate_report(report.to_dict())
     finally:
         store.close()
@@ -675,6 +682,35 @@ def command_gate(args: argparse.Namespace) -> int:
     for suite in report.suites:
         print(f"  {suite['status']:6} {suite['name']}")
     return 0 if report.status in {"pass", "warn", "needs_human_review"} else 1
+
+
+def command_replay(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        patch_payload = store.get_patch_bundle(args.patch_id)
+        if patch_payload is None:
+            print(f"error: patch not found: {args.patch_id}", file=sys.stderr)
+            return 1
+        patch = PatchBundle.from_dict(patch_payload)
+        issue = store.get_issue(patch.issue_id)
+        if issue is None:
+            print(f"error: issue not found for patch: {patch.issue_id}", file=sys.stderr)
+            return 1
+        evals = store.list_evals_for_issue(patch.issue_id)
+        report = run_replay(patch, issue, evals)
+        path = write_replay_report(root, report)
+        store.upsert_replay_report(report.to_dict())
+    finally:
+        store.close()
+
+    print(f"Replay report {report.replay_id}")
+    print(f"  patch: {report.patch_id}")
+    print(f"  status: {report.status}")
+    print(f"  passed: {report.passed_cases}")
+    print(f"  failed: {report.failed_cases}")
+    print(f"  report: {path.relative_to(root)}")
+    return 0 if report.status == "pass" else 1
 
 
 def command_pr(args: argparse.Namespace) -> int:
@@ -985,6 +1021,8 @@ def run(argv: list[str] | None = None) -> int:
         return command_patches_show(args)
     if args.command == "gate":
         return command_gate(args)
+    if args.command == "replay":
+        return command_replay(args)
     if args.command == "pr":
         return command_pr(args)
     if args.command == "prs" and args.pr_command == "list":

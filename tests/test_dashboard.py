@@ -53,6 +53,7 @@ def test_render_dashboard_escapes_issue_content() -> None:
             "evals": [],
             "patches": [],
             "gates": [],
+            "replays": [],
             "prs": [],
             "manifests": [],
         }

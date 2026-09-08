@@ -90,6 +90,14 @@ create table if not exists gate_reports (
   foreign key(patch_id) references patch_bundles(patch_id)
 );
 
+create table if not exists replay_reports (
+  replay_id text primary key,
+  patch_id text not null,
+  status text not null,
+  payload_json text not null,
+  foreign key(patch_id) references patch_bundles(patch_id)
+);
+
 create table if not exists pr_artifacts (
   pr_id text primary key,
   patch_id text not null,
@@ -410,6 +418,31 @@ class Store:
     def list_gate_reports(self) -> list[dict[str, Any]]:
         rows = self.connection.execute(
             "select payload_json from gate_reports order by gate_report_id"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def upsert_replay_report(self, report: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into replay_reports(replay_id, patch_id, status, payload_json)
+            values (?, ?, ?, ?)
+            on conflict(replay_id) do update set
+              patch_id=excluded.patch_id,
+              status=excluded.status,
+              payload_json=excluded.payload_json
+            """,
+            (
+                report["replay_id"],
+                report["patch_id"],
+                report["status"],
+                json.dumps(report, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_replay_reports(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from replay_reports order by replay_id"
         ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
 

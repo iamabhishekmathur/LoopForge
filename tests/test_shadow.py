@@ -178,6 +178,7 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert (project_root / ".loopforge" / "patches" / "PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "patches" / "PATCH-0001.diff").is_file()
     assert (project_root / ".loopforge" / "reports" / "GATE-PATCH-0001.json").is_file()
+    assert (project_root / ".loopforge" / "reports" / "REPLAY-PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.md").is_file()
 

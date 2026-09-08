@@ -7,6 +7,7 @@ from pathlib import Path
 
 from loopforge.models.patch import GateReport, PatchBundle
 from loopforge.paths import LOCAL_DIR
+from loopforge.replay.runner import ReplayReport, run_replay
 
 
 def run_gates(
@@ -14,7 +15,9 @@ def run_gates(
     issue: dict[str, object],
     evals: list[dict[str, object]],
     validations: list[dict[str, object]],
+    replay_report: ReplayReport | None = None,
 ) -> GateReport:
+    replay_report = replay_report or run_replay(patch, issue, evals)
     suites = [
         _scope_suite(patch),
         _grounding_suite(patch, issue),
@@ -22,7 +25,7 @@ def run_gates(
         _diagnosis_confidence_suite(issue),
         _eval_coverage_suite(patch, evals),
         _evaluator_validation_suite(validations),
-        _replay_sandbox_suite(patch),
+        _replay_sandbox_suite(patch, replay_report),
     ]
     status = "pass" if all(suite["status"] == "pass" for suite in suites) else "reject"
     recommendation = "merge_after_human_review" if status == "pass" else "revise"
@@ -44,7 +47,8 @@ def run_gates(
             "artifact_grounding_confidence": _min_artifact_confidence(patch),
             "diagnosis_confidence": _diagnosis_confidence(issue),
             "recommendation_quality_level": "gated_patch" if status == "pass" else "patch_candidate",
-            "replay_sandbox": "pass",
+            "replay_sandbox": replay_report.status,
+            "replay_id": replay_report.replay_id,
         },
         metadata={
             "ai_drafted": True,
@@ -138,16 +142,19 @@ def _evaluator_validation_suite(validations: list[dict[str, object]]) -> dict[st
     }
 
 
-def _replay_sandbox_suite(patch: PatchBundle) -> dict[str, object]:
+def _replay_sandbox_suite(patch: PatchBundle, replay_report: ReplayReport) -> dict[str, object]:
     risky = any(
         artifact.get("artifact_type") == "permission_policy"
         for artifact in patch.target_artifacts
     )
+    passed = replay_report.status == "pass" and (not risky or replay_report.passed_cases > 0)
     return {
         "name": "replay_sandbox",
-        "status": "reject" if risky else "pass",
-        "score_after": 0.0 if risky else 1.0,
-        "failed_cases": ["permission policy patches need explicit replay sandbox"] if risky else [],
+        "status": "pass" if passed else "reject",
+        "score_after": 1.0 if passed else 0.0,
+        "failed_cases": []
+        if passed
+        else [f"replay report did not pass: {replay_report.replay_id}"],
     }
 
 

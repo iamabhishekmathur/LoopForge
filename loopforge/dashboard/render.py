@@ -31,6 +31,7 @@ def collect_dashboard_data(root: Path) -> dict[str, Any]:
             "evals": store.list_eval_examples(),
             "patches": store.list_patch_bundles(),
             "gates": store.list_gate_reports(),
+            "replays": store.list_replay_reports(),
             "prs": store.list_pr_artifacts(),
             "manifests": store.list_runtime_manifests(),
         }
@@ -105,6 +106,7 @@ def render_dashboard(data: dict[str, Any]) -> str:
     {_table("Evals", data.get("evals", []), ["eval_id", "status", "issue_id", "primary_ontology_id"])}
     {_table("Patches", data.get("patches", []), ["patch_id", "status", "issue_id", "new_eval_ids"])}
     {_table("Gates", data.get("gates", []), ["gate_report_id", "status", "recommendation", "patch_id"])}
+    {_table("Replay Reports", data.get("replays", []), ["replay_id", "status", "patch_id", "passed_cases", "failed_cases"])}
     {_table("PR Artifacts", data.get("prs", []), ["pr_id", "status", "patch_id", "branch_name"])}
     {_table("Runtime Manifests", data.get("manifests", []), ["manifest_id", "agent_id", "agent_version", "model_name"])}
   </main>
