@@ -373,7 +373,8 @@
 <a class="toc-level-3" href="#20-2-distribution">20.2 Distribution</a>
 <a class="toc-level-3" href="#20-3-trust-building-features">20.3 Trust-Building Features</a>
 <a class="toc-level-3" href="#20-4-recommended-enterprise-pilot">20.4 Recommended Enterprise Pilot</a>
-<a class="toc-level-3" href="#20-5-community-growth">20.5 Community Growth</a>
+<a class="toc-level-3" href="#20-5-pre-customer-alpha-gate">20.5 Pre-Customer Alpha Gate</a>
+<a class="toc-level-3" href="#20-6-community-growth">20.6 Community Growth</a>
 <a class="toc-level-2" href="#21-success-metrics">21. Success Metrics</a>
 <a class="toc-level-3" href="#21-1-product-metrics">21.1 Product Metrics</a>
 <a class="toc-level-3" href="#21-2-adoption-metrics">21.2 Adoption Metrics</a>
@@ -1807,11 +1808,14 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 <li>GitHub Action.</li>
 <li>Example integrations for Langfuse, Phoenix, LangSmith, LangGraph, OpenAI Agents SDK.</li>
 <li>Public demo agent with intentionally failing traces.</li>
+<li>One-command local demo that creates a failing fixture agent, runs monitor/refiner/gates, and prints the exact next commands.</li>
+<li>Executable readiness gate for design-partner testing.</li>
 </ul>
 <h3 id="20-3-trust-building-features">20.3 Trust-Building Features</h3>
 <ul>
 <li>Local-only mode.</li>
 <li>Redaction preview.</li>
+<li>Readiness command that fails on missing project health, invalid connectors, schema errors, or sensitive-looking local trace values.</li>
 <li>Dry-run mode.</li>
 <li>No hidden mutation.</li>
 <li>Every LLM call logged.</li>
@@ -1854,7 +1858,15 @@ loopforge gate PATCH-17-a --suite core</code></pre>
 </tr>
 </tbody></table></div>
 <p>The product should support more than this from day one, but this pilot path gives companies a safe way to earn trust before enabling higher autonomy levels.</p>
-<h3 id="20-5-community-growth">20.5 Community Growth</h3>
+<h3 id="20-5-pre-customer-alpha-gate">20.5 Pre-Customer Alpha Gate</h3>
+<p>LoopForge should not enter customer trials based on subjective confidence. The repo should expose a small, executable gate:</p>
+<pre><code class="language-text">loopforge demo --path /tmp/loopforge-demo --force
+cd /tmp/loopforge-demo
+loopforge readiness
+loopforge refinements preview REFINE-0001-0001
+loopforge redact preview</code></pre>
+<p>The demo proves the product can create a fixture agent, ingest traces, mine a real recurring issue, draft a patch, run replay/gates, and show a reviewer-grade diff. The readiness command then gives a binary design-partner answer based on project initialization, connector usability, schema health, and privacy preview.</p>
+<h3 id="20-6-community-growth">20.6 Community Growth</h3>
 <p>Make the canonical failure ontology and eval recipes the community hub.</p>
 <p>Possible community artifacts:</p>
 <ul>

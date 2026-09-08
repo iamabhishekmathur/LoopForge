@@ -86,6 +86,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Monitor Run Schema](schemas/monitor-run.schema.json)
 - [Patch Bundle Schema](schemas/patch-bundle.schema.json)
 - [PR Artifact Schema](schemas/pr-artifact.schema.json)
+- [Redaction Preview Schema](schemas/redaction-preview.schema.json)
 - [Refinement Operation Schema](schemas/refinement-operation.schema.json)
 - [Refiner Queue Item Schema](schemas/refiner-queue-item.schema.json)
 - [Replay Report Schema](schemas/replay-report.schema.json)
@@ -99,15 +100,17 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 The first 30 minute onboarding experience should build trust before asking for behavior-patch trust:
 
 ```text
+loopforge demo --path /tmp/loopforge-demo --force
 loopforge init
 loopforge init --framework langgraph
+loopforge readiness
+loopforge redact preview
 loopforge connectors doctor
 loopforge discover
 loopforge states list
 loopforge shadow --last 24h
 loopforge issues show ISSUE_ID
-loopforge eval add --from-issue ISSUE_ID
-loopforge pr --eval-only
+loopforge evals show EVAL_ID
 ```
 
 The broader MVP can still support gated behavior-patch PRs:
@@ -138,6 +141,29 @@ For teams using OpenTelemetry, OpenInference, Langfuse, Phoenix, LangSmith, Brai
 
 For teams using GitHub, PR generation should work out of the box. GitLab and local patch export can follow.
 
+## Customer Test Gate
+
+Before putting LoopForge in front of a design partner, run the finite readiness path:
+
+```bash
+python -m loopforge demo --path /tmp/loopforge-demo --force
+cd /tmp/loopforge-demo
+python -m loopforge readiness
+python -m loopforge refinements preview REFINE-0001-0001
+python -m loopforge redact preview
+```
+
+Then run the same gate in the candidate agent repository:
+
+```bash
+python -m loopforge init --framework generic  # only if loopforge.yaml is not present yet
+python -m loopforge readiness
+python -m loopforge onboard --last 24h
+python -m loopforge refinements list
+```
+
+`loopforge readiness` passes only when the project is initialized, configured trace connectors are usable, packaged schemas parse, and the local redaction preview finds no sensitive-looking values. This is intentionally conservative: bad recommendations or privacy surprises erode trust faster than any feature can rebuild it.
+
 Hosted trace sources can be configured with either a recorded fixture for local
 validation or a live HTTP endpoint:
 
@@ -161,6 +187,9 @@ python -m loopforge init
 python -m loopforge init --framework openai-agents
 python -m loopforge onboard
 python -m loopforge doctor
+python -m loopforge readiness
+python -m loopforge demo --path /tmp/loopforge-demo --force
+python -m loopforge redact preview
 python -m loopforge connectors list
 python -m loopforge connectors doctor
 python -m loopforge discover

@@ -1180,11 +1180,14 @@ This is concrete, trustworthy, and buyer-legible.
 - GitHub Action.
 - Example integrations for Langfuse, Phoenix, LangSmith, LangGraph, OpenAI Agents SDK.
 - Public demo agent with intentionally failing traces.
+- One-command local demo that creates a failing fixture agent, runs monitor/refiner/gates, and prints the exact next commands.
+- Executable readiness gate for design-partner testing.
 
 ### 20.3 Trust-Building Features
 
 - Local-only mode.
 - Redaction preview.
+- Readiness command that fails on missing project health, invalid connectors, schema errors, or sensitive-looking local trace values.
 - Dry-run mode.
 - No hidden mutation.
 - Every LLM call logged.
@@ -1209,7 +1212,21 @@ For serious production agent teams, the recommended adoption path is a 30-day tr
 
 The product should support more than this from day one, but this pilot path gives companies a safe way to earn trust before enabling higher autonomy levels.
 
-### 20.5 Community Growth
+### 20.5 Pre-Customer Alpha Gate
+
+LoopForge should not enter customer trials based on subjective confidence. The repo should expose a small, executable gate:
+
+```text
+loopforge demo --path /tmp/loopforge-demo --force
+cd /tmp/loopforge-demo
+loopforge readiness
+loopforge refinements preview REFINE-0001-0001
+loopforge redact preview
+```
+
+The demo proves the product can create a fixture agent, ingest traces, mine a real recurring issue, draft a patch, run replay/gates, and show a reviewer-grade diff. The readiness command then gives a binary design-partner answer based on project initialization, connector usability, schema health, and privacy preview.
+
+### 20.6 Community Growth
 
 Make the canonical failure ontology and eval recipes the community hub.
 

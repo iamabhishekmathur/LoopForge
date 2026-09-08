@@ -90,6 +90,8 @@ def test_help_includes_discover_and_shadow(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert "discover" in result.stdout
     assert "onboard" in result.stdout
+    assert "readiness" in result.stdout
+    assert "demo" in result.stdout
     assert "dashboard" in result.stdout
     assert "manifest" in result.stdout
     assert "states" in result.stdout
@@ -98,6 +100,7 @@ def test_help_includes_discover_and_shadow(tmp_path: Path) -> None:
     assert "monitor" in result.stdout
     assert "queue" in result.stdout
     assert "learned" in result.stdout
+    assert "redact" in result.stdout
     assert "evals" in result.stdout
     assert "propose" in result.stdout
     assert "patches" in result.stdout

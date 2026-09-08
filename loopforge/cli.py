@@ -15,6 +15,7 @@ from .config import InitOptions, SUPPORTED_FRAMEWORKS, initialize_project, inspe
 from .confirmation.runner import confirm_patch_outcome, write_confirmation_report
 from .dashboard.render import build_dashboard
 from .db import Store
+from .demo import run_demo
 from .discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
 from .issues.report import issue_report_markdown, write_issue_report
@@ -32,6 +33,11 @@ from .models.runtime import RuntimeHarnessManifest
 from .models.state import HarnessStateSnapshot
 from .paths import PROJECT_CONFIG, find_project_root, require_project_root
 from .patching.generator import write_patch_bundle
+from .privacy.redaction import (
+    preview_redaction,
+    redaction_preview_markdown,
+    write_redaction_preview,
+)
 from .prs.generator import generate_pr_artifact, pr_markdown, write_pr_artifact
 from .prs.opener import PrOpenError, open_pull_request
 from .refinements.ledger import write_refinement_operations
@@ -83,6 +89,10 @@ def build_parser() -> argparse.ArgumentParser:
     onboard.add_argument("--skip-monitor", action="store_true", help="Stop after discovery and manifest.")
 
     subparsers.add_parser("doctor", help="Check local LoopForge project health.")
+    subparsers.add_parser("readiness", help="Run pre-customer readiness checks.")
+    demo = subparsers.add_parser("demo", help="Create and run a fixture-backed LoopForge demo.")
+    demo.add_argument("--path", default=".loopforge-demo", help="Demo project directory.")
+    demo.add_argument("--force", action="store_true", help="Recreate the demo directory if it exists.")
     subparsers.add_parser("discover", help="Discover harness artifacts in this repository.")
 
     dashboard = subparsers.add_parser("dashboard", help="Build a local read-only dashboard.")
@@ -128,6 +138,11 @@ def build_parser() -> argparse.ArgumentParser:
     queue_cancel.add_argument("queue_item_id")
 
     subparsers.add_parser("learned", help="Write a summary of what LoopForge learned.")
+
+    redact = subparsers.add_parser("redact", help="Preview local trace and repo redaction.")
+    redact_subparsers = redact.add_subparsers(dest="redact_command", required=True)
+    redact_preview = redact_subparsers.add_parser("preview", help="Preview sensitive values.")
+    redact_preview.add_argument("--path", default=None, help="Optional file glob to scan.")
 
     issues = subparsers.add_parser("issues", help="Inspect mined issues.")
     issue_subparsers = issues.add_subparsers(dest="issue_command", required=True)
@@ -273,6 +288,65 @@ def command_doctor(_: argparse.Namespace) -> int:
         return 1
     print("Project health: ok")
     return 0
+
+
+def command_demo(args: argparse.Namespace) -> int:
+    try:
+        result = run_demo(Path(args.path), force=args.force)
+    except FileExistsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        print(f"error: demo failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Created LoopForge demo at {result.root}")
+    print(f"  monitor: {result.monitor_run_id}")
+    print(f"  queue: {result.queue_item_id}")
+    print(f"  issue: {result.issue_id}")
+    print(f"  patch: {result.patch_id}")
+    print(f"  gate: {result.gate_report_id}")
+    print("")
+    print("Next commands:")
+    for command in result.commands:
+        print(f"  cd {result.root} && {command}")
+    return 0
+
+
+def command_readiness(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    health = inspect_project(root)
+    connectors = connector_statuses(root)
+    schemas = validate_all_schemas()
+    redaction = preview_redaction(root)
+
+    failed_health = [name for name, ok in health.items() if not ok]
+    failed_schemas = [status for status in schemas if not status.valid]
+    bad_connectors = [
+        status for status in connectors if status.status in {"invalid", "unsupported"}
+    ]
+
+    print("# LoopForge Readiness")
+    print("")
+    print(f"Project: `{root}`")
+    print(f"Project health: `{'pass' if not failed_health else 'fail'}`")
+    print(f"Connectors: `{len(connectors) - len(bad_connectors)}/{len(connectors)} usable`")
+    print(f"Schemas: `{'pass' if not failed_schemas else 'fail'}`")
+    print(f"Redaction: `{redaction.status}` ({redaction.finding_count} findings)")
+    print("")
+    print("## Customer Test Gate")
+    if failed_health:
+        print("- Fail: project files are missing.")
+    if bad_connectors:
+        print("- Fail: one or more connectors are invalid or unsupported.")
+    if failed_schemas:
+        print("- Fail: bundled schemas do not parse.")
+    if redaction.finding_count:
+        print("- Fail: redaction preview found sensitive-looking values.")
+    if not failed_health and not bad_connectors and not failed_schemas and not redaction.finding_count:
+        print("- Pass: ready for a local design-partner test.")
+
+    return 1 if failed_health or bad_connectors or failed_schemas or redaction.finding_count else 0
 
 
 def command_onboard(args: argparse.Namespace) -> int:
@@ -666,6 +740,16 @@ def command_learned(_: argparse.Namespace) -> int:
     print("")
     print(f"Wrote learned report: {path.relative_to(root)}")
     return 0
+
+
+def command_redact_preview(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    preview = preview_redaction(root, path_glob=args.path)
+    path = write_redaction_preview(root, preview)
+    print(redaction_preview_markdown(preview))
+    print("")
+    print(f"Wrote redaction preview: {path.relative_to(root)}")
+    return 0 if preview.status == "pass" else 1
 
 
 def _monitor_run_summary(run: MonitorRun) -> str:
@@ -1590,6 +1674,10 @@ def run(argv: list[str] | None = None) -> int:
         return command_onboard(args)
     if args.command == "doctor":
         return command_doctor(args)
+    if args.command == "readiness":
+        return command_readiness(args)
+    if args.command == "demo":
+        return command_demo(args)
     if args.command == "discover":
         return command_discover(args)
     if args.command == "dashboard" and args.dashboard_command == "build":
@@ -1620,6 +1708,8 @@ def run(argv: list[str] | None = None) -> int:
         return command_queue_cancel(args)
     if args.command == "learned":
         return command_learned(args)
+    if args.command == "redact" and args.redact_command == "preview":
+        return command_redact_preview(args)
     if args.command == "issues" and args.issue_command == "list":
         return command_issues_list(args)
     if args.command == "issues" and args.issue_command == "show":

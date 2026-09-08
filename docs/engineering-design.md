@@ -1752,17 +1752,18 @@ def score_tool_sequence(case, trace) -> Score:
 ```text
 loopforge init
 loopforge init --framework langgraph
+loopforge demo --path /tmp/loopforge-demo --force
 loopforge connect
 loopforge doctor
+loopforge readiness
 loopforge discover
 loopforge states list
 loopforge states show STATE_ID
 loopforge index show
 loopforge shadow
-loopforge monitor start
-loopforge monitor stop
-loopforge monitor status
-loopforge monitor once
+loopforge monitor --once
+loopforge monitor --max-runs 10
+loopforge monitor --list-runs
 loopforge queue list
 loopforge queue run-next
 loopforge queue cancel QUEUE_ITEM_ID

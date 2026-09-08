@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/redaction-preview.schema.json",
+  "title": "LoopForge Redaction Preview",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "scanned_files",
+    "finding_count",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "needs_review"]
+    },
+    "scanned_files": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "finding_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path", "line", "masked"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["email", "phone", "api_key", "bearer_token"]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "masked": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
