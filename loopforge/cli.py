@@ -49,6 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init.add_argument("--force", action="store_true", help="Overwrite existing generated files.")
 
+    onboard = subparsers.add_parser("onboard", help="Run the fast LoopForge adoption path.")
+    onboard.add_argument("--project-name", default=None, help="Project name for new config.")
+    onboard.add_argument("--trace-path", default=None, help="JSONL trace glob for new config or first run.")
+    onboard.add_argument("--last", default=None, help="Trace window for the first monitor run.")
+    onboard.add_argument("--skip-monitor", action="store_true", help="Stop after discovery and manifest.")
+
     subparsers.add_parser("doctor", help="Check local LoopForge project health.")
     subparsers.add_parser("discover", help="Discover harness artifacts in this repository.")
 
@@ -165,6 +171,63 @@ def command_doctor(_: argparse.Namespace) -> int:
         print("Project health: needs attention")
         return 1
     print("Project health: ok")
+    return 0
+
+
+def command_onboard(args: argparse.Namespace) -> int:
+    root = Path.cwd()
+    created = []
+    if find_project_root() is None:
+        created = initialize_project(
+            root,
+            InitOptions(
+                project_name=args.project_name or root.name,
+                trace_path=args.trace_path or "traces/*.jsonl",
+            ),
+        )
+        print(f"Initialized LoopForge project in {root}")
+        print(f"  created: {len(created)} paths")
+    else:
+        root = require_project_root(root)
+        print(f"Using LoopForge project in {root}")
+
+    statuses = connector_statuses(root)
+    ready_sources = [status for status in statuses if status.status == "ready"]
+    print(f"Connectors: {len(ready_sources)}/{len(statuses)} ready")
+    for status in statuses:
+        print(f"  {status.source_id}: {status.status} ({status.message})")
+
+    artifacts = discover_harness_artifacts(root)
+    index_path = write_harness_index(root, artifacts)
+    manifest = build_runtime_manifest(root, artifacts)
+    manifest_path = write_runtime_manifest(root, manifest)
+    store = Store.for_project(root)
+    try:
+        for artifact in artifacts:
+            store.upsert_harness_artifact(artifact.to_dict())
+        store.upsert_runtime_manifest(manifest.to_dict())
+    finally:
+        store.close()
+    print(f"Discovery: {len(artifacts)} artifacts")
+    print(f"  index: {index_path.relative_to(root)}")
+    print(f"  manifest: {manifest_path.relative_to(root)}")
+
+    if args.skip_monitor:
+        print("Monitor: skipped")
+        return 0
+
+    run = next(
+        iter_monitor_runs(
+            root,
+            window=args.last,
+            trace_path=args.trace_path,
+            max_runs=1,
+        )
+    )
+    print(_monitor_run_summary(run))
+    if run.status == "failed":
+        return 1
+    print("Onboarding complete.")
     return 0
 
 
@@ -872,6 +935,8 @@ def run(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         return command_init(args)
+    if args.command == "onboard":
+        return command_onboard(args)
     if args.command == "doctor":
         return command_doctor(args)
     if args.command == "discover":

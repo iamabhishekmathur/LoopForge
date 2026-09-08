@@ -117,6 +117,7 @@ Run the CLI from source:
 ```bash
 python -m loopforge --help
 python -m loopforge init
+python -m loopforge onboard
 python -m loopforge doctor
 python -m loopforge connectors list
 python -m loopforge connectors doctor
@@ -159,6 +160,15 @@ Run tests:
 ```bash
 pytest
 ```
+
+Run with Docker:
+
+```bash
+docker build -t loopforge .
+docker run --rm -v "$PWD:/workspace" -w /workspace loopforge monitor --once
+```
+
+GitHub Actions example: [examples/github-action.yml](examples/github-action.yml).
 
 ## Design Principles
 
