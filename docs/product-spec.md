@@ -52,6 +52,7 @@ Public tooling already covers important pieces:
 | Offline evals | Promptfoo, OpenAI Evals, Braintrust, LangSmith, Phoenix | Evals exist but are often manually authored and disconnected from production failures. |
 | Prompt optimization | DSPy, GEPA, OPRO, TextGrad, EvoPrompt | Optimizers target prompts/programs but do not own the end-to-end product workflow of issue, eval, gate, PR, rollout. |
 | Closed-loop products | LangSmith Engine | Strong product signal, but not a neutral OSS harness standard. |
+| Continual harness research | Continual Harness | Strong evidence that harness state can improve from trajectory data; LoopForge adapts this to production software with gates and PR review. |
 | Frontier lab launch process | OpenAI system cards and deployment simulation, Anthropic RSP/system cards, Google DeepMind Frontier Safety, Meta Llama model cards | Labs have internal processes; most agent companies need a practical OSS version. |
 
 LoopForge should not try to replace this ecosystem. Its adoption path is integration-first.
@@ -73,6 +74,7 @@ Make closed-loop agent improvement the default operating model for every agent c
 7. Build and maintain a semantic index of the codebase, harness artifacts, tools, Skills, prompts, routes, policies, and evals.
 8. Capture the runtime harness manifest for each agent run so recommendations are grounded in the harness that actually executed, not just the repository snapshot.
 9. Reduce first value to 30 minutes and reduce first useful integration to 1 hour through automatic connection, discovery, drafting, and setup PRs.
+10. Treat harness improvement as an auditable state machine: every proposed edit should have an operation record, provenance, gate status, and post-merge outcome.
 
 ### 5.2 Non-Goals
 
@@ -258,6 +260,18 @@ Candidate patches should be focused, explainable, and reversible.
 
 Do not solve every issue by appending more prompt text. Prefer targeted artifacts and evals.
 
+### 8.15 Harness State Is The Product Object
+
+LoopForge should track the harness as evolving state, not a loose pile of prompts and patches. Each trace should connect to the harness state that produced it, and each proposed improvement should create a structured refinement operation that can be audited, gated, accepted, rejected, reverted, or learned from.
+
+### 8.16 Component-Specific Refinement
+
+The refiner should not be a single generic patch generator. It should run component-specific passes for prompts, Skills, tools, policies, context, retrieval, memory interfaces, evals, scorers, and agent graphs. Each pass should understand the edit types, risks, and gates appropriate to that component.
+
+### 8.17 Continuous Drafting, Reviewed Release
+
+LoopForge may observe, diagnose, draft, and simulate continuously. It should not continuously mutate production. Production-facing change remains PR-based and gate-based unless a team explicitly opts into a narrower local apply mode.
+
 ## 9. Product Surface
 
 ### 9.1 CLI
@@ -416,6 +430,21 @@ The first evidence-backed value should arrive in 30 minutes or less for an exist
 4. Patch trigger conditions, anti-trigger conditions, workflow steps, or verification requirements.
 5. Generate Skill trigger evals and task completion evals.
 
+### 10.5 Continual Harness Refinement Loop
+
+LoopForge should add a continuous refinement loop that runs after trace monitoring and before PR creation.
+
+1. Select a recent trajectory window by schedule, trace count, severity spike, model change, or post-merge follow-up.
+2. Compare the observed traces against the runtime harness manifests and current harness state graph.
+3. Run component-specific refiner passes over prompts, Skills, tools, policies, context, retrieval, memory interface, evals, scorers, and agent graph artifacts.
+4. Emit refinement operations with CRUD semantics: `create`, `update`, `delete`, or `noop`.
+5. Link each operation to traces, issues, evals, candidate patches, confidence, rationale, and risk.
+6. Gate operations through replay, evaluator validation, grounding, safety, and regression checks.
+7. Convert approved operations into PRs according to the autonomy level.
+8. Monitor post-merge traces to determine whether the failure signature actually decreased.
+
+This loop incorporates the strongest lesson from Continual Harness while adapting it to production agent companies: the system should improve from trajectory data continuously, but release trust must remain explicit and reviewable.
+
 ## 11. Harness Artifact Model
 
 LoopForge should support a recommended layout while adapting to existing repos. It must not assume teams already know where every harness artifact lives.
@@ -480,7 +509,63 @@ The manifest should not store full sensitive prompt or policy content inside tra
 
 When codebase discovery and the runtime manifest disagree, LoopForge should prefer the runtime manifest for diagnosis and flag a `HARNESS_INDEX_GAP`.
 
-### 11.3 Recommended Layout
+### 11.3 Harness State Graph
+
+LoopForge should persist a harness state graph that captures the effective state of the agent harness over time.
+
+State graph nodes:
+
+- Runtime harness manifests.
+- Codebase-discovered harness artifacts.
+- Prompts, Skills, tools, policies, evals, scorers, context builders, memory interfaces, agent graphs, and model configs.
+- Refinement operations.
+- Patch bundles, gate reports, PR artifacts, rollouts, reviewer outcomes, and post-merge monitoring results.
+
+State graph edges:
+
+- Trace produced by harness state.
+- Manifest references artifact.
+- Issue implicates artifact.
+- Refiner proposes operation.
+- Operation creates, updates, deletes, or noops a component.
+- Patch implements operation.
+- Eval covers operation.
+- Gate accepts or rejects operation.
+- PR merges, edits, or rejects operation.
+- Post-merge monitor confirms, regresses, or finds no measurable effect.
+
+The state graph should answer:
+
+- What harness produced this trace?
+- Which traces motivated this change?
+- Which component changed?
+- Did the change pass gates?
+- Did humans accept, edit, reject, or revert it?
+- Did production behavior improve after merge?
+- Is LoopForge repeatedly patching the same artifact, indicating a deeper architecture problem?
+
+### 11.4 Refinement Operation Ledger
+
+Every proposed harness edit should create a structured refinement operation before it becomes a patch or PR.
+
+Required fields:
+
+- `operation_id`
+- `operation_type`: `create`, `update`, `delete`, or `noop`
+- `component_type`: prompt, sub-agent, Skill, memory interface, tool, policy, eval, scorer, or harness artifact
+- `artifact_id` and `artifact_path`
+- `issue_id` and `patch_id`
+- `source_trace_ids`
+- `source_eval_ids`
+- `confidence`
+- `rationale`
+- `diff_summary`
+- `provenance`
+- `status`: drafted, gated, rejected, merged, or retired
+
+The ledger is a trust primitive. It should let teams audit LoopForge's reasoning, measure recommendation quality, detect patch concentration, and train future refiners from accepted and rejected operations.
+
+### 11.5 Recommended Layout
 
 Recommended layout:
 
@@ -491,6 +576,7 @@ loopforge.yaml
   manifests/
   issues/
   patches/
+  refinements/
   reports/
 harness/
   system.md
@@ -523,7 +609,7 @@ evals/
     tool_sequence.py
 ```
 
-### 11.4 Artifact Types
+### 11.6 Artifact Types
 
 | Type | Purpose | Example patch |
 | --- | --- | --- |
@@ -795,6 +881,7 @@ Trust is easier to lose than to earn. LoopForge should be designed so low-qualit
 Requirements:
 
 - Default to high-precision recommendations, even if that means fewer patches.
+- Require every behavior-changing recommendation to map to one or more refinement operations.
 - Produce competing hypotheses when evidence is ambiguous.
 - Distinguish trace evidence, codebase evidence, eval evidence, and model inference.
 - Require codebase grounding before behavioral patch proposals.
@@ -803,6 +890,8 @@ Requirements:
 - Cap automated PR volume so maintainers are never flooded.
 - Label risky patches for security or domain review.
 - Track recommendation acceptance, rejection, and revert rates.
+- Track operation acceptance, rejection, merge, revert, and post-merge confirmation rates.
+- Detect patch concentration when LoopForge repeatedly proposes edits to the same artifact or component type.
 - Demote patch strategies that are repeatedly rejected in a repo.
 - Never auto-merge by default.
 
@@ -819,6 +908,7 @@ A new user should be able to:
 5. See a first-value report with issue clusters, trace evidence, manifest coverage, harness-index confidence, replay readiness, and proposed evals.
 6. Open or preview an AI-drafted eval PR.
 7. See AI-drafted behavior-patch candidates ranked by confidence and autonomy level.
+8. See the first refinement-operation ledger entries that explain exactly what LoopForge wants to change and why.
 
 This onboarding path is not the MVP boundary. It is the first trust-building experience inside the broader MVP. The product may already support behavioral patch proposals, but onboarding should make the first visible value an AI-drafted, evidence-backed eval PR and a clear report on what the system can safely automate next.
 
@@ -891,6 +981,8 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Codebase discovery and semantic harness index.
 - Runtime harness manifest schema and trace linkage.
 - Runtime manifest emission SDK helpers.
+- Harness state graph sufficient to connect traces, manifests, artifacts, issues, patches, gates, PRs, and refinement operations.
+- Refinement operation ledger with CRUD semantics.
 - JSONL trace adapter.
 - OpenTelemetry/OpenInference trace mapping.
 - Langfuse export adapter.
@@ -900,6 +992,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Probabilistic issue classification and semantic clustering.
 - LLM-assisted diagnosis with local redaction.
 - Candidate patch generation for Markdown and YAML harness artifacts.
+- Component-specific refiner passes for prompts, Skills, tools, policies, evals, and memory-interface policies.
 - Eval generation in YAML/JSONL.
 - AI-drafted evaluator generation and validation records.
 - Setup PR generation for manifests, trace enrichment, side-effect classes, replay stubs, CI, and monitor config.
@@ -910,6 +1003,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Git patch export.
 - GitHub PR creation.
 - Autonomy ramp from read-only monitoring through gated behavior-patch PRs.
+- Post-merge monitoring for failure-signature recurrence and patch confirmation.
 
 ### 17.2 MVP Excludes
 
@@ -918,6 +1012,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Automatic production deployment.
 - Full prompt optimizer search.
 - Fine-tuning.
+- Online model weight updates or reward-model training.
 - Owning memory implementation.
 - Arbitrary code patches without explicit opt-in.
 - Browser-based trace replay UI.
@@ -938,6 +1033,8 @@ Version 1.0 should add:
 - DSPy/GEPA integration for optimizer-backed patch candidates.
 - Model launch simulation workflow.
 - Canary monitoring workflow.
+- Refiner benchmark suite with public fixtures for diagnosis, patch-layer selection, and operation quality.
+- Harness co-learning export for successful operations, failed operations, traces, labels, evals, and reviewer outcomes.
 - Organization-wide ontology reporting.
 - Plugin SDK.
 
@@ -1090,6 +1187,11 @@ Possible community artifacts:
 - Evaluator precision and recall by failure mode.
 - Evaluator prevalence estimate confidence intervals.
 - Pass^k reliability trend for critical workflows.
+- Refinement operation acceptance rate by component type.
+- Refinement operation revert rate by component type.
+- Post-merge failure-signature reduction.
+- Patch concentration score by artifact and component type.
+- Refiner abstention quality on low-evidence traces.
 - Safety eval pass rate.
 - Redaction miss rate.
 
@@ -1105,6 +1207,9 @@ LoopForge should ship with conservative default thresholds that teams can tune:
 | Eval PR acceptance rate | 70 percent or higher during onboarding | The first trust experience should feel useful. |
 | Behavioral patch PR acceptance rate | 50 percent or higher after ramp-up | Lower rates imply reviewer burden is too high. |
 | Patch revert rate | Under 2 percent | Reverts are the clearest sign of trust damage. |
+| Refinement operation rejection rate | Under 50 percent after onboarding ramp | High rejection implies the refiner is creating reviewer burden. |
+| Post-merge confirmation rate | 70 percent or higher for merged operations with enough traffic | Closed-loop systems need evidence that shipped changes helped. |
+| Patch concentration score | Alert when one artifact receives repeated edits without confirmation | Repeated edits can mean the patch layer is wrong or the architecture is weak. |
 | Maintainer edit distance | Median under 30 percent for accepted PRs | High edit distance means the generated patch is not close enough. |
 | Redaction miss rate | 0 known misses in release qualification | Privacy failures are existential. |
 | Side-effect replay escape rate | 0 | Replay must never trigger real production effects. |
@@ -1145,6 +1250,7 @@ LoopForge should acknowledge existing tools and win by composition.
 - Codebase discovery.
 - Harness artifact index.
 - Runtime harness manifest schema and SDK helpers.
+- Refinement operation ledger.
 - Redaction.
 - Probabilistic issue mining.
 - Side-effect-safe replay.
@@ -1162,8 +1268,19 @@ LoopForge should acknowledge existing tools and win by composition.
 - PR comments.
 - Gate status checks.
 - Patch rollback metadata.
+- Operation acceptance/rejection telemetry.
+- Post-merge confirmation monitor.
 
-### Phase 3: Integrations
+### Phase 3: Continual Refinement
+
+- Harness state graph.
+- Component-specific refiner passes.
+- Patch concentration detection.
+- Failure signature memory.
+- Refiner quality gates.
+- Refiner benchmark fixtures.
+
+### Phase 4: Integrations
 
 - Langfuse adapter.
 - Phoenix adapter.
@@ -1173,7 +1290,7 @@ LoopForge should acknowledge existing tools and win by composition.
 - LangChain/LangGraph recipe.
 - OpenAI Agents SDK recipe.
 
-### Phase 4: Model Launch Simulator
+### Phase 5: Model Launch Simulator
 
 - Replay prior traces against candidate model.
 - Compare behavior deltas.
@@ -1181,14 +1298,21 @@ LoopForge should acknowledge existing tools and win by composition.
 - Recommend harness updates.
 - Canary monitor.
 
-### Phase 5: Optimizer Backends
+### Phase 6: Optimizer Backends
 
 - DSPy/GEPA optional patch candidates.
 - Multi-candidate patch search.
 - Budget-aware optimizer runs.
 - Evaluator validation tooling.
 
-### Phase 6: Hosted Optional Layer
+### Phase 7: Harness Co-Learning Exports
+
+- Export accepted and rejected operations as training data.
+- Export trace windows with judge labels and reviewer outcomes.
+- Export replay and gate outcomes as process-supervision data.
+- Keep model training external to LoopForge unless explicitly enabled.
+
+### Phase 8: Hosted Optional Layer
 
 - Team dashboard.
 - Shared issue board.
@@ -1206,10 +1330,13 @@ Mitigation must be architectural:
 
 - Use high recommendation thresholds by default.
 - Require codebase grounding and trace evidence for behavioral patches.
+- Require a structured refinement operation for every proposed behavioral edit.
 - Separate observation, hypothesis, patch candidate, gated patch, and trusted pattern levels.
 - Show uncertainty and competing hypotheses.
 - Gate patches before PR creation when configured.
 - Add regression evals with every behavioral patch.
+- Measure post-merge effect on the originating failure signature.
+- Warn on repeated edits to the same artifact without measured improvement.
 - Cap PR volume.
 - Track maintainer rejections, edits, reverts, and muted issue categories.
 - Learn repo-local reviewer preferences from accepted and rejected LoopForge PRs.
@@ -1223,6 +1350,7 @@ Mitigation must be architectural:
 | LLM diagnoses wrong root cause | Wasted time | Evidence requirements, confidence scores, competing hypotheses. |
 | Trace privacy leak | Severe | Local-first mode, redaction preview, no external LLM calls by default. |
 | Prompt sediment | Harness becomes bloated | Patch right layer, max prompt diff budgets, prompt lint. |
+| Repeated patching masks architecture issues | Local fixes accumulate without solving the root cause | Track patch concentration, require post-merge confirmation, and recommend architecture or instrumentation work when repeated operations do not reduce failures. |
 | Eval overfitting | False confidence | Holdout suites, production canaries, diverse trace sampling. |
 | Evaluator drift | Bad gate decisions | Evaluator validation records, hard gates, frozen judge configs, and periodic revalidation. |
 | Too hard to adopt | Low adoption | Automatic discovery, scheduled monitoring, trace adapters, minimal config, framework recipes. |
@@ -1249,6 +1377,9 @@ Mitigation must be architectural:
 16. Replay must fail closed unless side-effect safety is proven.
 17. LoopForge should understand the codebase before recommending behavior changes.
 18. LoopForge should be useful even if the team never uses the optional web UI.
+19. Every proposed harness edit should create a refinement operation with CRUD semantics, provenance, confidence, gate status, and reviewer outcome.
+20. LoopForge should monitor whether merged operations reduce the originating failure signature before treating a pattern as trusted.
+21. LoopForge should export accepted and rejected operations as future co-learning data, but model weight updates are outside the default product boundary.
 
 ## 26. Public References
 
@@ -1263,3 +1394,4 @@ Mitigation must be architectural:
 - [Anthropic Responsible Scaling Policy reflections](https://www.anthropic.com/news/reflections-on-our-responsible-scaling-policy)
 - [Google DeepMind Frontier Safety](https://deepmind.google/frontier-safety/)
 - [Meta Llama 4 model card](https://github.com/meta-llama/llama-models/blob/main/models/llama4/MODEL_CARD.md)
+- [Continual Harness: Online Adaptation for Self-Improving Foundation Agents](https://arxiv.org/abs/2605.09998)

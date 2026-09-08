@@ -36,15 +36,21 @@ flowchart LR
   G --> J["Probabilistic Issue Miner"]
   I --> J
   J --> K["Diagnosis Engine"]
-  K --> L["Patch Planner"]
+  K --> U["Component-Specific Refiners"]
+  U --> V["Refinement Operation Ledger"]
+  V --> W["Harness State Graph"]
+  W --> L["Patch Planner"]
   L --> M["Patch Generator"]
   L --> N["Eval Generator"]
   N --> T["Evaluator Validator"]
   M --> O["Gate Runner"]
+  V --> O
   T --> O
   O --> P["Gate Report"]
+  P --> V
   P --> Q["PR Writer"]
   Q --> R["Git Provider"]
+  R --> W
   P --> B
 ```
 
@@ -169,6 +175,22 @@ monitor:
   max_prs_per_day: 3
   autonomy_level: 1
 
+refinement:
+  enabled: true
+  cadence: "after_monitor_run"
+  min_operation_confidence: 0.82
+  max_operations_per_run: 5
+  detect_patch_concentration: true
+  post_merge_confirmation_window: "7 days"
+  component_passes:
+    - prompts
+    - skills
+    - tools
+    - policies
+    - context
+    - memory_interface
+    - evals
+
 connect:
   auto_detect_trace_source: true
   auto_generate_setup_prs: true
@@ -251,6 +273,7 @@ loopforge.yaml
   manifests/
   issues/
   patches/
+  refinements/
   reports/
 harness/
   system.md
@@ -352,7 +375,61 @@ Fields:
 - `rollback_plan`
 - `gate_report_id`
 
-### 6.5 Eval Case
+### 6.5 Refinement Operation
+
+A refinement operation is the auditable unit of harness improvement. It is created before a patch or PR and updated as gates, review, merge, rollback, and post-merge monitoring outcomes arrive.
+
+Fields:
+
+- `operation_id`
+- `operation_type`: create, update, delete, or noop
+- `component_type`: prompt, sub_agent, Skill, memory interface, tool, policy, eval, scorer, or harness artifact
+- `artifact_id`
+- `artifact_path`
+- `issue_id`
+- `patch_id`
+- `status`
+- `source_trace_ids`
+- `source_eval_ids`
+- `confidence`
+- `rationale`
+- `diff_summary`
+- `provenance`
+- `created_at`
+- `metadata`
+
+Status lifecycle:
+
+```text
+drafted -> gated -> merged -> confirmed
+drafted -> rejected
+merged -> reverted
+merged -> no_effect
+```
+
+MVP may store `confirmed`, `reverted`, and `no_effect` as metadata before expanding the enum. The important constraint is that LoopForge can answer which operation led to which human and production outcome.
+
+### 6.6 Harness State Snapshot
+
+A harness state snapshot is the effective versioned state of the harness at a point in time.
+
+Fields:
+
+- `state_id`
+- `created_at`
+- `source`: runtime manifest, codebase discovery, PR merge, or manual import
+- `artifact_refs`
+- `model_config_refs`
+- `feature_flags`
+- `experiment_ids`
+- `tenant_policy_ids`
+- `parent_state_ids`
+- `operation_ids`
+- `confidence`
+
+The state snapshot should be derived from runtime manifests when possible and supplemented by static codebase discovery.
+
+### 6.7 Eval Case
 
 An eval case is a reproducible test usually AI-drafted from production traces, synthetic counterexamples, replay results, or reviewer outcomes. Teams may still import human-authored cases, but first value should not depend on that.
 
@@ -366,7 +443,7 @@ Fields:
 - `scorers`
 - `tags`
 
-### 6.6 Gate Report
+### 6.8 Gate Report
 
 A gate report is the result of evaluating a patch.
 
@@ -382,7 +459,7 @@ Fields:
 - `latency_delta`
 - `recommendation`
 
-### 6.7 Evaluator Validation Record
+### 6.9 Evaluator Validation Record
 
 An evaluator validation record describes whether an evaluator is trusted enough to score or block a gate.
 
@@ -420,7 +497,7 @@ Evaluator types:
 
 Evaluator validation records are AI-drafted and AI-maintained. Human labels can improve calibration, but the system should still produce provisional validation records from trace evidence, synthetic counterexamples, replay results, and reviewer outcomes.
 
-### 6.8 Harness Artifact
+### 6.10 Harness Artifact
 
 A harness artifact is any codebase object that shapes agent behavior.
 
@@ -454,7 +531,7 @@ Artifact types:
 - Agent graph.
 - Prompt registry reference.
 
-### 6.9 Harness Index
+### 6.11 Harness Index
 
 The harness index is a semantic graph over the codebase and harness.
 
@@ -467,10 +544,12 @@ It stores:
 - Eval coverage links.
 - Issue-to-artifact links.
 - Patch history and reviewer outcomes.
+- Refinement operation history.
+- Post-merge confirmation outcomes.
 
 The index is not a source of truth. The codebase and runtime manifests remain the sources of truth; the index is LoopForge's working model of them.
 
-### 6.10 Runtime Harness Manifest
+### 6.12 Runtime Harness Manifest
 
 A runtime harness manifest records the harness that actually executed for one trace or run.
 
@@ -522,7 +601,7 @@ manifest.attach_to_trace(trace)
 
 Framework adapters should emit manifests automatically when possible, but the manifest schema should remain framework-neutral.
 
-### 6.11 Autonomy Level
+### 6.13 Autonomy Level
 
 Autonomy level controls what the monitor can do without a one-off command.
 
@@ -704,11 +783,56 @@ The engine should always distinguish:
 - Inference from patterns.
 - Speculation.
 
-### 7.5 Patch Generation
+### 7.5 Continual Refinement
+
+The refinement engine converts diagnosis into structured operations before any diff is generated.
+
+Inputs:
+
+- Diagnosis and competing hypotheses.
+- Representative traces and trajectories.
+- Runtime harness manifests.
+- Harness state graph.
+- Artifact summaries and source anchors.
+- Existing eval coverage.
+- Prior operations and reviewer outcomes.
+- Post-merge confirmation history.
+
+Component-specific refiner passes:
+
+| Pass | Emits operations for | Common operation types | Key gates |
+| --- | --- | --- | --- |
+| Prompt refiner | System and developer prompts | update, noop | Prompt scope, regression, safety |
+| Skill refiner | Skill triggers, anti-triggers, workflow, verification | create, update, delete, noop | Skill routing evals, task completion replay |
+| Tool refiner | Tool descriptions, schemas, examples | update, noop | Tool sequence, schema, side-effect safety |
+| Policy refiner | Routing, permission, confirmation, safety policies | update, noop | Security, authorization, replay |
+| Context refiner | Packing, summarization, retrieval policy | update, noop | Context preservation, grounding |
+| Memory-interface refiner | Memory retrieval and write policy | update, noop | Staleness, relevance, privacy |
+| Eval refiner | Eval cases, scorers, judge definitions | create, update, delete, noop | Evaluator validation |
+| Agent-graph refiner | Sub-agent handoffs and workflow graph | update, noop | Routing replay, regression |
+
+Outputs:
+
+- Refinement operations.
+- Operation confidence.
+- Required evals.
+- Gate plan.
+- Abstention reason when no safe operation is justified.
+
+Operation planning rules:
+
+- Prefer `noop` with explanation when evidence is insufficient.
+- Prefer eval or observability operations over behavior changes when trace observability is weak.
+- Prefer the narrowest component pass that addresses the root cause.
+- Avoid proposing repeated operations on the same artifact without post-merge confirmation.
+- Require every behavior-changing operation to map to at least one eval and one gate.
+
+### 7.6 Patch Generation
 
 Patch generator receives:
 
 - Diagnosis.
+- Refinement operations.
 - Target artifacts.
 - Patch constraints.
 - Style rules.
@@ -728,7 +852,7 @@ Patch generator must not:
 - Include raw sensitive trace data.
 - Add broad prompt instructions when a targeted tool/schema fix is more appropriate.
 
-### 7.6 Gate Running
+### 7.7 Gate Running
 
 Gate runner applies candidate patch in an isolated working copy, runs eval suites, and reports results.
 
@@ -736,16 +860,39 @@ Gate stages:
 
 1. Static artifact validation.
 2. Patch scope validation.
-3. Grounding validation.
-4. Runtime manifest validation.
-5. Recommendation quality validation.
-6. Replay sandbox validation.
-7. Targeted replay evals.
-8. Core regression evals.
-9. Safety evals.
-10. Cost and latency checks.
-11. Evaluator validation checks.
-12. Report generation.
+3. Refinement operation validation.
+4. Grounding validation.
+5. Runtime manifest validation.
+6. Recommendation quality validation.
+7. Replay sandbox validation.
+8. Targeted replay evals.
+9. Core regression evals.
+10. Safety evals.
+11. Cost and latency checks.
+12. Evaluator validation checks.
+13. Patch concentration check.
+14. Report generation.
+
+### 7.8 Post-Merge Confirmation
+
+After a LoopForge PR merges, the monitor should watch the originating failure signature.
+
+Confirmation inputs:
+
+- Merged operation IDs.
+- Patch and PR metadata.
+- New traces from the configured confirmation window.
+- Runtime manifests showing the new harness state is active.
+- Existing eval and replay outcomes.
+
+Confirmation outcomes:
+
+- `confirmed`: recurrence dropped enough to treat the operation as useful.
+- `no_effect`: recurrence did not change despite enough traffic.
+- `regressed`: related failures increased or new severe failures appeared.
+- `insufficient_data`: not enough comparable traffic or manifest coverage.
+
+These outcomes should feed the harness state graph and future refiner confidence. Repeated `no_effect` or `regressed` outcomes for the same artifact should trigger patch concentration warnings and architecture-level recommendations.
 
 ## 8. Trace Schema Design
 
@@ -975,7 +1122,7 @@ Trace content is passed to LLM diagnosis as untrusted evidence. The diagnosis sy
 
 ## 12. Patch Planner
 
-The patch planner chooses one or more patch strategies.
+The patch planner chooses one or more patch strategies from refinement operations. A patch plan may include several operations only when they share the same issue, gate plan, and reviewer boundary.
 
 Strategies:
 
@@ -989,6 +1136,8 @@ Strategies:
 - `model_launch_patch`: model-specific adaptation.
 - `observability_patch`: improve trace spans or evidence capture before behavior changes.
 - `harness_index_patch`: improve artifact mapping or config hints before behavior changes.
+- `refinement_noop`: explicitly decline to change behavior because evidence or safety is insufficient.
+- `patch_concentration_escalation`: recommend deeper architecture, instrumentation, or policy work after repeated ineffective edits.
 - `optimizer_search`: run DSPy/GEPA backend.
 
 Default strategy: `smallest_safe_patch`.
@@ -1160,16 +1309,18 @@ flowchart TD
   A["Candidate Patch"] --> B["Create Isolated Worktree"]
   B --> C["Apply Patch"]
   C --> D["Static Validation"]
-  D --> E["Grounding Validation"]
-  E --> F["Runtime Manifest Validation"]
-  F --> G["Recommendation Quality"]
-  G --> H["Replay Sandbox Check"]
-  H --> I["Target Issue Replay"]
-  I --> J["Core Regression Suite"]
-  J --> K["Safety Suite"]
-  K --> L["Cost/Latency Checks"]
-  L --> M["Evaluator Validation Checks"]
-  M --> N["Gate Report"]
+  D --> E["Refinement Operation Validation"]
+  E --> F["Grounding Validation"]
+  F --> G["Runtime Manifest Validation"]
+  G --> H["Recommendation Quality"]
+  H --> I["Replay Sandbox Check"]
+  I --> J["Target Issue Replay"]
+  J --> K["Core Regression Suite"]
+  K --> L["Safety Suite"]
+  L --> M["Cost/Latency Checks"]
+  M --> N["Evaluator Validation Checks"]
+  N --> O["Patch Concentration Check"]
+  O --> P["Gate Report"]
 ```
 
 ### 15.2 Gate Status
@@ -1197,6 +1348,10 @@ thresholds:
   runtime_manifest_coverage_min: 0.90
   issue_precision_min: 0.80
   patch_revert_rate_max: 0.02
+  refinement_operation_confidence_min: 0.82
+  refinement_operation_rejection_rate_max: 0.50
+  post_merge_confirmation_rate_min: 0.70
+  patch_concentration_alert_count: 3
   side_effect_replay_escape_max: 0
 ```
 
@@ -1225,6 +1380,9 @@ trust:
   artifact_grounding_confidence: 0.91
   recommendation_quality_level: gated_patch
   replay_sandbox: pass
+  refinement_operations:
+    - refine_2026_00017_a_0001
+  patch_concentration: low
 recommendation: merge_after_human_review
 ```
 
@@ -1285,6 +1443,9 @@ Updates `harness/tools/cancel_subscription.yaml` so the tool is only called afte
 ## Changes
 - Clarified tool invocation conditions.
 - Added forbidden tool-call eval for exploratory cancellation requests.
+
+## Refinement Operations
+- `refine_2026_00017_a_0001`: update tool `harness/tools/cancel_subscription.yaml`
 
 ## Gate Results
 - Target replay: 5/5 fixed
@@ -1444,6 +1605,31 @@ This graph supports:
 - Trust gating for grounded recommendations.
 - Observability and index-gap detection.
 
+### 19.1 Temporal Harness State
+
+The graph should also support time-aware snapshots. A trace should map to the harness state that produced it, not merely to the current repository files.
+
+State sources:
+
+- Runtime harness manifests emitted during agent execution.
+- Static codebase discovery snapshots.
+- Merged LoopForge PRs.
+- Manual harness imports.
+- Prompt registry versions.
+- Feature flag and tenant policy snapshots.
+
+State transitions:
+
+- New trace window observed.
+- Harness index refreshed.
+- Refinement operation drafted.
+- Patch generated.
+- Gate passed or rejected.
+- PR opened, edited, merged, or reverted.
+- Post-merge confirmation succeeds, fails, or lacks data.
+
+This temporal graph is required for causal attribution. LoopForge should avoid claiming a patch fixed a failure unless production traces show the new harness state was active and the originating failure signature decreased under comparable traffic.
+
 ## 20. API Design
 
 ### 20.1 Python API
@@ -1516,6 +1702,8 @@ loopforge diagnose ISSUE_ID
 loopforge propose ISSUE_ID
 loopforge patches list
 loopforge patches show PATCH_ID
+loopforge refinements list
+loopforge refinements show OPERATION_ID
 loopforge gate PATCH_ID
 loopforge pr PATCH_ID
 loopforge launch simulate
@@ -1696,10 +1884,14 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - Gate threshold logic.
 - Patch path enforcement.
 - Recommendation quality ladder enforcement.
+- Refinement operation lifecycle.
+- Patch concentration scoring.
+- Post-merge confirmation classification.
 
 ### 27.2 Golden Tests
 
 - Known trace inputs produce expected issues.
+- Known diagnoses produce expected refinement operations.
 - Known issues produce expected patch plans.
 - Known bad patches are rejected.
 - Known good patches pass.
@@ -1713,6 +1905,7 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - Scheduled monitor dry run.
 - GitHub PR dry run.
 - CI action run.
+- Post-merge confirmation dry run.
 
 ### 27.4 Security Tests
 
@@ -1727,6 +1920,9 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - Evaluator validation quality.
 - False positive issue rate on clean traces.
 - Bad recommendation rate on seeded ambiguous traces.
+- Refiner abstention quality on low-evidence traces.
+- Refinement operation acceptance and rejection telemetry.
+- Patch concentration warning behavior.
 - Artifact grounding quality on real-world repo fixtures.
 - Runtime manifest coverage and mismatch detection.
 - Side-effect-safe replay escape tests.
@@ -1744,6 +1940,7 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - Canonical schemas.
 - Runtime manifest schema.
 - Runtime manifest SDK helpers.
+- Refinement operation schema.
 
 ### Milestone 2: Discovery And Monitoring
 
@@ -1751,6 +1948,8 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - Harness artifact classifier.
 - Harness index store.
 - Runtime manifest store.
+- Refinement operation store.
+- Harness state graph store.
 - Scheduler.
 - Monitor cursors.
 - JSONL adapter.
@@ -1779,6 +1978,9 @@ This is important because LoopForge itself is an agentic system. It must be debu
 
 - Harness artifact parser.
 - Patch planner.
+- Component-specific refiner passes.
+- Refinement operation generation.
+- Patch concentration detection.
 - Markdown/YAML patch generator.
 - Eval generator.
 - Evaluator validator.
@@ -1798,6 +2000,7 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - Python scorer API.
 - Gate report.
 - Trust qualification report.
+- Post-merge confirmation report.
 - CI-friendly exit codes.
 
 ### Milestone 6: PR Workflow
@@ -1806,6 +2009,8 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - PR creation.
 - PR body generation.
 - GitHub Action.
+- Refinement operation status updates from gate and review outcomes.
+- Post-merge confirmation monitor.
 
 ### Milestone 7: Integrations
 
@@ -1822,6 +2027,13 @@ This is important because LoopForge itself is an agentic system. It must be debu
 - Replay runner.
 - Behavior delta report.
 - Launch gates.
+
+### Milestone 9: Harness Co-Learning Export
+
+- Export accepted and rejected operations.
+- Export trace windows with judge labels and reviewer outcomes.
+- Export gate and replay outcomes as process-supervision data.
+- Keep model weight updates external by default.
 
 ## 29. Example End-To-End Run
 
@@ -1855,6 +2067,8 @@ Recommendation: open PR
 | Adapters lose important trace semantics | Preserve native metadata and add adapter conformance tests. |
 | Probabilistic diagnosis is expensive | Cache calls, summarize evidence, support local models, and let teams tune monitor cadence. |
 | Patches are low quality | Keep scope narrow, require evals, show competing hypotheses. |
+| Refiner creates plausible but weak operations | Require operation confidence, grounding, evaluator validation, replay gates, and abstention on low-evidence traces. |
+| Repeated local edits hide a deeper architecture problem | Track patch concentration and require post-merge confirmation before treating a pattern as trusted. |
 | Gates are too slow | Tag evals, support sampled suites, cache model outputs. |
 | Teams have unusual harness layouts | Artifact mapping in config, parser plugin API. |
 | Redaction misses sensitive data | Strict defaults, preview, custom detectors, external LLM off by default. |

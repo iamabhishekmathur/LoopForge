@@ -230,3 +230,4 @@ LoopForge is meant to interoperate with, not replace, the existing ecosystem:
 - [Anthropic Responsible Scaling Policy](https://www.anthropic.com/news/reflections-on-our-responsible-scaling-policy) as an example of gated capability evaluation and mitigation.
 - [Google DeepMind Frontier Safety](https://deepmind.google/frontier-safety/) as an example of lifecycle safety evaluation.
 - [Meta Llama model cards](https://github.com/meta-llama/llama-models/blob/main/models/llama4/MODEL_CARD.md) as an example of system-level protections, red teaming, and app-context evaluation.
+- [Continual Harness](https://arxiv.org/abs/2605.09998) as research evidence that trajectory-driven harness state refinement can close part of the gap to hand-engineered agent scaffolding.
