@@ -8,6 +8,7 @@ from pathlib import Path
 
 from loopforge.adapters.registry import read_traces
 from loopforge.db import Store
+from loopforge.discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from loopforge.discovery.scanner import discover_harness_artifacts, write_harness_index
 from loopforge.evals.artifacts import write_eval_artifacts
 from loopforge.evals.generator import generate_eval_for_issue
@@ -41,8 +42,11 @@ def run_shadow_pipeline(
     try:
         artifacts = discover_harness_artifacts(root)
         write_harness_index(root, artifacts)
+        manifest = build_runtime_manifest(root, artifacts)
+        write_runtime_manifest(root, manifest)
         for artifact in artifacts:
             store.upsert_harness_artifact(artifact.to_dict())
+        store.upsert_runtime_manifest(manifest.to_dict())
 
         trajectories = []
         for trace in traces:

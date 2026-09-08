@@ -107,6 +107,12 @@ create table if not exists monitor_runs (
   finished_at text,
   payload_json text not null
 );
+
+create table if not exists runtime_manifests (
+  manifest_id text primary key,
+  created_at text not null,
+  payload_json text not null
+);
 """
 
 
@@ -465,5 +471,35 @@ class Store:
         row = self.connection.execute(
             "select payload_json from monitor_runs where run_id = ?",
             (run_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def upsert_runtime_manifest(self, manifest: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into runtime_manifests(manifest_id, created_at, payload_json)
+            values (?, ?, ?)
+            on conflict(manifest_id) do update set
+              created_at=excluded.created_at,
+              payload_json=excluded.payload_json
+            """,
+            (
+                manifest["manifest_id"],
+                manifest["created_at"],
+                json.dumps(manifest, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_runtime_manifests(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from runtime_manifests order by created_at desc"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def get_runtime_manifest(self, manifest_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from runtime_manifests where manifest_id = ?",
+            (manifest_id,),
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None

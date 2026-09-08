@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+import json
 import sys
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from . import __version__
 from .adapters.registry import connector_statuses
 from .config import InitOptions, initialize_project, inspect_project
 from .db import Store
+from .discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
 from .issues.report import issue_report_markdown, write_issue_report
 from .models.eval import EvalExample, EvaluatorDefinition, EvaluatorValidationRecord
@@ -18,6 +20,7 @@ from .models.issue import Issue
 from .models.monitor import MonitorRun
 from .models.patch import PatchBundle, GateReport
 from .models.pr import PullRequestArtifact
+from .models.runtime import RuntimeHarnessManifest
 from .paths import PROJECT_CONFIG, find_project_root, require_project_root
 from .patching.generator import generate_patch_for_issue, write_patch_bundle
 from .prs.generator import generate_pr_artifact, pr_markdown, write_pr_artifact
@@ -48,6 +51,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("doctor", help="Check local LoopForge project health.")
     subparsers.add_parser("discover", help="Discover harness artifacts in this repository.")
+
+    manifest = subparsers.add_parser("manifest", help="Inspect runtime harness manifests.")
+    manifest_subparsers = manifest.add_subparsers(dest="manifest_command", required=True)
+    manifest_subparsers.add_parser("write", help="Write a runtime manifest from discovery.")
+    manifest_subparsers.add_parser("list", help="List runtime manifests.")
+    manifest_show = manifest_subparsers.add_parser("show", help="Show one runtime manifest.")
+    manifest_show.add_argument("manifest_id", nargs="?")
 
     connectors = subparsers.add_parser("connectors", help="Inspect trace connectors.")
     connector_subparsers = connectors.add_subparsers(dest="connector_command", required=True)
@@ -173,17 +183,80 @@ def command_discover(_: argparse.Namespace) -> int:
     root = require_project_root(Path.cwd())
     artifacts = discover_harness_artifacts(root)
     index_path = write_harness_index(root, artifacts)
+    manifest = build_runtime_manifest(root, artifacts)
+    manifest_path = write_runtime_manifest(root, manifest)
     store = Store.for_project(root)
     try:
         for artifact in artifacts:
             store.upsert_harness_artifact(artifact.to_dict())
+        store.upsert_runtime_manifest(manifest.to_dict())
     finally:
         store.close()
 
     print(f"Discovered {len(artifacts)} harness artifacts")
     print(f"  index: {index_path.relative_to(root)}")
+    print(f"  manifest: {manifest_path.relative_to(root)}")
     for artifact in artifacts:
         print(f"  {artifact.artifact_type:18} {artifact.confidence:.2f} {artifact.path}")
+    return 0
+
+
+def command_manifest_write(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    artifacts = discover_harness_artifacts(root)
+    manifest = build_runtime_manifest(root, artifacts)
+    path = write_runtime_manifest(root, manifest)
+    store = Store.for_project(root)
+    try:
+        store.upsert_runtime_manifest(manifest.to_dict())
+    finally:
+        store.close()
+
+    print(f"Wrote runtime manifest {manifest.manifest_id}")
+    print(f"  path: {path.relative_to(root)}")
+    print(f"  artifacts: {len(artifacts)}")
+    return 0
+
+
+def command_manifest_list(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        manifests = store.list_runtime_manifests()
+    finally:
+        store.close()
+
+    if not manifests:
+        print("No runtime manifests found.")
+        return 0
+
+    for manifest in manifests:
+        metadata = manifest.get("metadata") or {}
+        print(
+            f"{manifest['manifest_id']}  agent={manifest['agent_id']}  "
+            f"artifacts={metadata.get('artifact_count', 0)}"
+        )
+    return 0
+
+
+def command_manifest_show(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    manifest_id = args.manifest_id
+    store = Store.for_project(root)
+    try:
+        if manifest_id:
+            manifest = store.get_runtime_manifest(manifest_id)
+        else:
+            manifests = store.list_runtime_manifests()
+            manifest = manifests[0] if manifests else None
+    finally:
+        store.close()
+
+    if manifest is None:
+        print("error: runtime manifest not found", file=sys.stderr)
+        return 1
+
+    print(json.dumps(RuntimeHarnessManifest.from_dict(manifest).to_dict(), indent=2, sort_keys=True))
     return 0
 
 
@@ -796,6 +869,12 @@ def run(argv: list[str] | None = None) -> int:
         return command_doctor(args)
     if args.command == "discover":
         return command_discover(args)
+    if args.command == "manifest" and args.manifest_command == "write":
+        return command_manifest_write(args)
+    if args.command == "manifest" and args.manifest_command == "list":
+        return command_manifest_list(args)
+    if args.command == "manifest" and args.manifest_command == "show":
+        return command_manifest_show(args)
     if args.command == "connectors" and args.connector_command == "list":
         return command_connectors_list(args)
     if args.command == "connectors" and args.connector_command == "doctor":

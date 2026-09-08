@@ -120,6 +120,7 @@ python -m loopforge doctor
 python -m loopforge connectors list
 python -m loopforge connectors doctor
 python -m loopforge discover
+python -m loopforge manifest show
 python -m loopforge monitor --once
 python -m loopforge monitor --list-runs
 python -m loopforge evals list

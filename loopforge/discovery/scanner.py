@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,7 +34,7 @@ def classify_artifact(path: str, content: str, indexed_at: str) -> HarnessArtifa
     lowered_path = path.lower()
     lowered_content = content.lower()
     evidence: list[str] = []
-    metadata: dict[str, object] = {}
+    metadata: dict[str, object] = _content_metadata(content)
 
     if _looks_like_tool_definition(lowered_content):
         tool_name = _extract_scalar(content, "name")
@@ -80,7 +81,10 @@ def classify_artifact(path: str, content: str, indexed_at: str) -> HarnessArtifa
             confidence=0.81,
             discovered_by=["content_classifier", "repo_scanner"],
             last_indexed_at=indexed_at,
-            metadata={"evidence": ["instructional prompt language", "harness path context"]},
+            metadata={
+                "evidence": ["instructional prompt language", "harness path context"],
+                **metadata,
+            },
         )
 
     if lowered_path.endswith(".jsonl") and _looks_like_eval_dataset(content):
@@ -92,7 +96,10 @@ def classify_artifact(path: str, content: str, indexed_at: str) -> HarnessArtifa
             confidence=0.74,
             discovered_by=["content_classifier", "repo_scanner"],
             last_indexed_at=indexed_at,
-            metadata={"evidence": ["jsonl records with agent inputs or expected behavior"]},
+            metadata={
+                "evidence": ["jsonl records with agent inputs or expected behavior"],
+                **metadata,
+            },
         )
 
     return None
@@ -159,6 +166,35 @@ def _looks_like_eval_dataset(content: str) -> bool:
             return False
         return "expected_behavior" in payload or "inputs" in payload or "spans" in payload
     return False
+
+
+def _content_metadata(content: str) -> dict[str, object]:
+    lines = content.splitlines()
+    return {
+        "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "line_count": len(lines),
+        "size_bytes": len(content.encode("utf-8")),
+        "signals": _content_signals(content),
+    }
+
+
+def _content_signals(content: str) -> list[str]:
+    lowered = content.lower()
+    signals = []
+    for token in (
+        "system",
+        "tool",
+        "skill",
+        "requires_confirmation",
+        "side_effect_class",
+        "model",
+        "router",
+        "memory",
+        "eval",
+    ):
+        if token in lowered:
+            signals.append(token)
+    return signals
 
 
 def _extract_scalar(content: str, key: str) -> str | None:
