@@ -94,4 +94,26 @@ def _artifact_links(tool_names: list[str], artifacts: list[HarnessArtifact]) -> 
                 }
             )
 
+    contextual_types = {
+        "system_prompt",
+        "skill",
+        "routing_policy",
+        "context_policy",
+        "retrieval_policy",
+        "eval_suite",
+    }
+    for artifact in artifacts:
+        if artifact.artifact_type not in contextual_types:
+            continue
+        links.append(
+            {
+                "artifact_id": artifact.artifact_id,
+                "artifact_type": artifact.artifact_type,
+                "path": artifact.path,
+                "confidence": artifact.confidence,
+                "sha256": artifact.metadata.get("sha256", ""),
+                "reason": "contextual harness artifact for the implicated behavior contract",
+            }
+        )
+
     return links

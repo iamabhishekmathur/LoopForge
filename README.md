@@ -102,6 +102,7 @@ The broader MVP can still support gated behavior-patch PRs:
 
 ```text
 loopforge propose ISSUE_ID
+loopforge propose ISSUE_ID --layer system_prompt
 loopforge gate PATCH_ID
 loopforge pr --dry-run PATCH_ID
 loopforge pr open PR_ID

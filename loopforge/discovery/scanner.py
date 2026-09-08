@@ -87,6 +87,42 @@ def classify_artifact(path: str, content: str, indexed_at: str) -> HarnessArtifa
             },
         )
 
+    if _looks_like_skill(lowered_path, lowered_content):
+        return HarnessArtifact(
+            artifact_id=_artifact_id("skill", path),
+            artifact_type="skill",
+            path=path,
+            summary="Agent skill instructions or workflow guidance.",
+            confidence=0.79,
+            discovered_by=["content_classifier", "repo_scanner"],
+            last_indexed_at=indexed_at,
+            metadata={"evidence": ["skill path or skill instructions"], **metadata},
+        )
+
+    if _looks_like_policy(lowered_path, lowered_content, "routing"):
+        return HarnessArtifact(
+            artifact_id=_artifact_id("routing", path),
+            artifact_type="routing_policy",
+            path=path,
+            summary="Routing policy or agent dispatch guidance.",
+            confidence=0.76,
+            discovered_by=["content_classifier", "repo_scanner"],
+            last_indexed_at=indexed_at,
+            metadata={"evidence": ["routing policy signals"], **metadata},
+        )
+
+    if _looks_like_policy(lowered_path, lowered_content, "context"):
+        return HarnessArtifact(
+            artifact_id=_artifact_id("context", path),
+            artifact_type="context_policy",
+            path=path,
+            summary="Context assembly or retrieval policy.",
+            confidence=0.76,
+            discovered_by=["content_classifier", "repo_scanner"],
+            last_indexed_at=indexed_at,
+            metadata={"evidence": ["context policy signals"], **metadata},
+        )
+
     if lowered_path.endswith(".jsonl") and _looks_like_eval_dataset(content):
         return HarnessArtifact(
             artifact_id=_artifact_id("eval-dataset", path),
@@ -153,6 +189,14 @@ def _looks_like_system_prompt(path: str, content: str) -> bool:
     if "you are " in content and ("agent" in content or "assistant" in content):
         return True
     return "system" in path and ("prompt" in path or "harness" in path)
+
+
+def _looks_like_skill(path: str, content: str) -> bool:
+    return "skill" in path and ("instructions" in content or "workflow" in content or "use when" in content)
+
+
+def _looks_like_policy(path: str, content: str, policy_name: str) -> bool:
+    return policy_name in path and ("policy" in content or policy_name in content)
 
 
 def _looks_like_eval_dataset(content: str) -> bool:

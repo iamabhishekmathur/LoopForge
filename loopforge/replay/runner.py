@@ -104,6 +104,15 @@ def _patch_addresses_assertions(
     for assertion in assertions:
         if assertion.get("type") == "forbidden_tool_call":
             tool = str(assertion.get("tool") or "").lower()
-            if tool and tool in diff and patch_layer in {"tool_description", "permission_policy"}:
+            if tool and tool in diff and patch_layer in {
+                "tool_description",
+                "permission_policy",
+                "system_prompt",
+                "skill",
+                "routing_policy",
+                "context_policy",
+                "retrieval_policy",
+                "evaluator",
+            }:
                 return True
     return False

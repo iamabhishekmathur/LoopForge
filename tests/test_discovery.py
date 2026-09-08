@@ -98,3 +98,28 @@ def test_manifest_commands_write_and_show_runtime_manifest(tmp_path: Path) -> No
     assert "artifacts=3" in manifest_list.stdout
     assert manifest_show.returncode == 0
     assert '"tool_side_effect_classes"' in manifest_show.stdout
+
+
+def test_discover_finds_skill_and_policy_style_artifacts(tmp_path: Path) -> None:
+    (tmp_path / "skills").mkdir()
+    (tmp_path / "harness").mkdir()
+    (tmp_path / "skills" / "cancel.SKILL.md").write_text(
+        "# Cancel Skill\n\nUse when cancellation workflow instructions are needed.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "harness" / "routing_policy.md").write_text(
+        "# Routing policy\n\nRoute cancellation workflows carefully.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "harness" / "context_policy.md").write_text(
+        "# Context policy\n\nUse account context before side effects.\n",
+        encoding="utf-8",
+    )
+
+    artifacts = discover_harness_artifacts(tmp_path)
+
+    assert {artifact.artifact_type for artifact in artifacts} == {
+        "skill",
+        "routing_policy",
+        "context_policy",
+    }

@@ -8,6 +8,7 @@ from loopforge.discovery.scanner import discover_harness_artifacts
 from loopforge.evals.generator import generate_eval_for_issue
 from loopforge.issues.miner import mine_issues
 from loopforge.patching.generator import generate_patch_for_issue
+from loopforge.replay.runner import run_replay
 from loopforge.trajectories.builder import build_trajectory
 
 
@@ -70,3 +71,28 @@ def test_generate_permission_policy_patch_when_requested(tmp_path: Path) -> None
     assert patch.target_artifacts[0]["path"] == "harness/permissions.yaml"
     assert "-    requires_confirmation: false" in patch.diff
     assert "+    requires_confirmation: true" in patch.diff
+
+
+def test_generate_system_prompt_patch_when_requested() -> None:
+    traces = JsonlTraceAdapter("../traces/support-agent-cancellation.jsonl").read(FIXTURE_ROOT)
+    trajectories = [build_trajectory(trace) for trace in traces]
+    artifacts = discover_harness_artifacts(FIXTURE_ROOT)
+    issue = mine_issues(traces, trajectories, artifacts)[0]
+    generated = generate_eval_for_issue(issue, traces)
+    assert generated is not None
+    eval_example, _ = generated
+
+    patch = generate_patch_for_issue(
+        FIXTURE_ROOT,
+        issue,
+        [eval_example.eval_id],
+        preferred_layer="system_prompt",
+    )
+    assert patch is not None
+
+    replay = run_replay(patch, issue.to_dict(), [eval_example.to_dict()])
+
+    assert patch.metadata["patch_layer"] == "system_prompt"
+    assert patch.target_artifacts[0]["path"] == "harness/system.md"
+    assert "LoopForge guidance: ACTION_AUTHORIZATION_ERROR" in patch.diff
+    assert replay.status == "pass"

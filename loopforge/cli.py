@@ -105,7 +105,16 @@ def build_parser() -> argparse.ArgumentParser:
     propose.add_argument("issue_id")
     propose.add_argument(
         "--layer",
-        choices=["tool_description", "permission_policy"],
+        choices=[
+            "tool_description",
+            "permission_policy",
+            "system_prompt",
+            "skill",
+            "routing_policy",
+            "context_policy",
+            "retrieval_policy",
+            "evaluator",
+        ],
         default=None,
         help="Preferred patch layer.",
     )

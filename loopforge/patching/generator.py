@@ -23,6 +23,15 @@ def generate_patch_for_issue(
 
     if preferred_layer == "permission_policy":
         return _permission_policy_patch(root, issue, eval_ids)
+    if preferred_layer in {
+        "system_prompt",
+        "skill",
+        "routing_policy",
+        "context_policy",
+        "retrieval_policy",
+        "evaluator",
+    }:
+        return _generic_guidance_patch(root, issue, eval_ids, preferred_layer)
     if preferred_layer == "tool_description" or preferred_layer is None:
         patch = _tool_description_patch(root, issue, eval_ids)
         if patch is not None or preferred_layer == "tool_description":
@@ -127,6 +136,54 @@ def _permission_policy_patch(
     )
 
 
+def _generic_guidance_patch(
+    root: Path,
+    issue: Issue,
+    eval_ids: list[str],
+    layer: str,
+) -> PatchBundle | None:
+    artifact_type = "eval_suite" if layer == "evaluator" else layer
+    artifact = _first_artifact(issue, artifact_type)
+    if artifact is None and layer == "system_prompt":
+        artifact = _first_artifact(issue, "system_prompt")
+    if artifact is None:
+        return None
+
+    path = root / str(artifact["path"])
+    original = path.read_text(encoding="utf-8")
+    patched = _append_guidance(original, issue, layer)
+    if patched == original:
+        return None
+    diff = _unified_diff(str(artifact["path"]), original, patched)
+    return PatchBundle(
+        patch_id=f"PATCH-{issue.issue_id.removeprefix('ISSUE-')}",
+        issue_id=issue.issue_id,
+        target_artifacts=[
+            {
+                "artifact_id": str(artifact["artifact_id"]),
+                "artifact_type": str(artifact["artifact_type"]),
+                "path": str(artifact["path"]),
+                "confidence": float(artifact.get("confidence") or 0),
+                "sha256": _artifact_sha(root, artifact),
+            }
+        ],
+        diff=diff,
+        new_eval_ids=eval_ids,
+        risk_assessment=(
+            f"Medium-risk {layer} patch. It adds narrowly scoped guidance for "
+            "an observed failure and should be reviewed against regressions."
+        ),
+        rollback_plan=f"Revert the {layer} guidance change and keep the generated eval as coverage.",
+        metadata={
+            "strategy": f"{layer}_guidance_patch",
+            "ai_drafted": True,
+            "patch_layer": layer,
+            "diagnosis_confidence": issue.confidence,
+            "requires_human_approval": True,
+        },
+    )
+
+
 def write_patch_bundle(root: Path, patch: PatchBundle) -> dict[str, Path]:
     patch_dir = root / LOCAL_DIR / "patches"
     patch_dir.mkdir(parents=True, exist_ok=True)
@@ -210,3 +267,20 @@ def _patch_permission_policy(content: str, issue: Issue) -> str:
             inside_tool = False
         patched_lines.append(line)
     return "\n".join(patched_lines) + "\n" if changed else content
+
+
+def _append_guidance(content: str, issue: Issue, layer: str) -> str:
+    tools = issue.metadata.get("implicated_tools", [])
+    tool = str(tools[0]) if isinstance(tools, list) and tools else "side-effecting tool"
+    marker = f"LoopForge guidance: {issue.primary_ontology_id}"
+    if marker in content:
+        return content
+    guidance = (
+        f"\n\n## {marker}\n\n"
+        f"When using `{tool}`, treat destructive or externally visible actions as "
+        "requiring explicit user confirmation in the current interaction before "
+        "execution. Prefer a clarification or draft response when confirmation is "
+        "ambiguous. This guidance was generated for `{layer}` from trace-backed "
+        f"evidence: {', '.join(issue.evidence_trace_ids)}.\n"
+    )
+    return content.rstrip() + guidance
