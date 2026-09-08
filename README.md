@@ -73,6 +73,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 
 - [Product Spec](docs/product-spec.md)
 - [Engineering Design](docs/engineering-design.md)
+- [Trace Source Setup](docs/trace-source-setup.md)
 - [Confirmation Report Schema](schemas/confirmation-report.schema.json)
 - [Eval Example Schema](schemas/eval-example.schema.json)
 - [Evaluator Definition Schema](schemas/evaluator-definition.schema.json)
@@ -148,7 +149,7 @@ loopforge.yaml
 
 ### 3. Point LoopForge At Traces
 
-Edit `loopforge.yaml` so `traces.sources` points at the customer's observability system.
+Edit `loopforge.yaml` so `traces.sources` points at the customer's observability system. See [Trace Source Setup](docs/trace-source-setup.md) for provider choices, credential guidance, cloud storage paths, expected trace fields, and troubleshooting.
 
 Local JSONL traces:
 
