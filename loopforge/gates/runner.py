@@ -18,6 +18,8 @@ def run_gates(
     suites = [
         _scope_suite(patch),
         _grounding_suite(patch, issue),
+        _artifact_fingerprint_suite(patch),
+        _diagnosis_confidence_suite(issue),
         _eval_coverage_suite(patch, evals),
         _evaluator_validation_suite(validations),
         _replay_sandbox_suite(patch),
@@ -38,8 +40,9 @@ def run_gates(
         suites=suites,
         trust={
             "autonomy_level": 1,
-            "runtime_manifest_coverage": 0.0,
+            "runtime_manifest_coverage": _runtime_manifest_coverage(patch),
             "artifact_grounding_confidence": _min_artifact_confidence(patch),
+            "diagnosis_confidence": _diagnosis_confidence(issue),
             "recommendation_quality_level": "gated_patch" if status == "pass" else "patch_candidate",
             "replay_sandbox": "pass",
         },
@@ -99,6 +102,32 @@ def _eval_coverage_suite(patch: PatchBundle, evals: list[dict[str, object]]) -> 
     }
 
 
+def _artifact_fingerprint_suite(patch: PatchBundle) -> dict[str, object]:
+    missing = [
+        str(artifact.get("path"))
+        for artifact in patch.target_artifacts
+        if not artifact.get("sha256")
+    ]
+    passed = not missing
+    return {
+        "name": "artifact_fingerprint",
+        "status": "pass" if passed else "reject",
+        "score_after": 1.0 if passed else 0.0,
+        "failed_cases": [] if passed else missing,
+    }
+
+
+def _diagnosis_confidence_suite(issue: dict[str, object]) -> dict[str, object]:
+    confidence = _diagnosis_confidence(issue)
+    passed = confidence >= 0.70
+    return {
+        "name": "diagnosis_confidence",
+        "status": "pass" if passed else "reject",
+        "score_after": confidence,
+        "failed_cases": [] if passed else [f"diagnosis confidence below threshold: {confidence}"],
+    }
+
+
 def _evaluator_validation_suite(validations: list[dict[str, object]]) -> dict[str, object]:
     eligible = any(validation.get("blocking_gate_eligible") is True for validation in validations)
     return {
@@ -126,3 +155,19 @@ def _min_artifact_confidence(patch: PatchBundle) -> float:
     if not patch.target_artifacts:
         return 0.0
     return round(min(float(artifact.get("confidence") or 0.0) for artifact in patch.target_artifacts), 4)
+
+
+def _runtime_manifest_coverage(patch: PatchBundle) -> float:
+    if not patch.target_artifacts:
+        return 0.0
+    covered = sum(1 for artifact in patch.target_artifacts if artifact.get("sha256"))
+    return round(covered / len(patch.target_artifacts), 4)
+
+
+def _diagnosis_confidence(issue: dict[str, object]) -> float:
+    metadata = issue.get("metadata", {})
+    if isinstance(metadata, dict):
+        diagnosis = metadata.get("diagnosis", {})
+        if isinstance(diagnosis, dict) and "confidence" in diagnosis:
+            return float(diagnosis["confidence"])
+    return float(issue.get("confidence") or 0.0)

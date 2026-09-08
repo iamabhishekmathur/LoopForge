@@ -91,6 +91,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     propose = subparsers.add_parser("propose", help="Draft a local patch bundle for an issue.")
     propose.add_argument("issue_id")
+    propose.add_argument(
+        "--layer",
+        choices=["tool_description", "permission_policy"],
+        default=None,
+        help="Preferred patch layer.",
+    )
 
     patches = subparsers.add_parser("patches", help="Inspect drafted patch bundles.")
     patch_subparsers = patches.add_subparsers(dest="patch_command", required=True)
@@ -508,6 +514,7 @@ def command_propose(args: argparse.Namespace) -> int:
             root,
             Issue.from_dict(issue_payload),
             [str(eval_example["eval_id"]) for eval_example in evals],
+            preferred_layer=args.layer,
         )
         if patch is None:
             print(f"error: no grounded patch available for {args.issue_id}", file=sys.stderr)

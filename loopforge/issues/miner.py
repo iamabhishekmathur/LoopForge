@@ -65,6 +65,7 @@ def _artifact_links(tool_names: list[str], artifacts: list[HarnessArtifact]) -> 
                     "artifact_type": tool_artifact.artifact_type,
                     "path": tool_artifact.path,
                     "confidence": tool_artifact.confidence,
+                    "sha256": tool_artifact.metadata.get("sha256", ""),
                     "reason": f"trace calls side-effecting tool `{tool_name}`",
                 }
             )
@@ -80,6 +81,7 @@ def _artifact_links(tool_names: list[str], artifacts: list[HarnessArtifact]) -> 
                     "artifact_type": artifact.artifact_type,
                     "path": artifact.path,
                     "confidence": artifact.confidence,
+                    "sha256": artifact.metadata.get("sha256", ""),
                     "reason": "policy governs an implicated side-effecting tool",
                 }
             )

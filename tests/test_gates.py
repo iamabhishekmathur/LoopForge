@@ -37,9 +37,13 @@ def test_run_gates_accepts_grounded_patch_with_validated_eval() -> None:
     assert report.status == "pass"
     assert report.recommendation == "merge_after_human_review"
     assert report.trust["recommendation_quality_level"] == "gated_patch"
+    assert report.trust["runtime_manifest_coverage"] == 1.0
+    assert report.trust["diagnosis_confidence"] >= 0.7
     assert {suite["name"] for suite in report.suites} == {
         "patch_scope",
         "codebase_grounding",
+        "artifact_fingerprint",
+        "diagnosis_confidence",
         "eval_coverage",
         "evaluator_validation",
         "replay_sandbox",
