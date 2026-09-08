@@ -1037,6 +1037,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 - Local file-based project.
 - SQLite metadata store.
 - Automated trace ingestion from configured sources.
+- Trace connector sync-state files with high-watermarks, last trace IDs, and cursor slots for incremental hosted ingestion.
 - Codebase discovery and semantic harness index.
 - Semantic index metadata for artifact tokens, structural anchors, import references, and retrieval text.
 - Runtime harness manifest schema and trace linkage.

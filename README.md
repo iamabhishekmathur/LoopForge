@@ -91,6 +91,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Replay Report Schema](schemas/replay-report.schema.json)
 - [Runtime Harness Manifest Schema](schemas/runtime-harness-manifest.schema.json)
 - [Trace Schema](schemas/trace.schema.json)
+- [Trace Sync State Schema](schemas/trace-sync-state.schema.json)
 - [Trace Trajectory Schema](schemas/trace-trajectory.schema.json)
 
 ## MVP Wedge
@@ -129,6 +130,8 @@ loopforge pr open PR_ID
 ```
 
 `loopforge monitor --once` writes a queued refiner job after trace ingestion and issue mining. `loopforge queue run-next` processes that job asynchronously and drafts patch/refinement artifacts without blocking trace collection.
+
+Each configured trace source writes local sync state under `.loopforge/connectors`, including high-watermark timestamps and last trace IDs. Hosted adapters can use that state to request incremental windows when the provider API supports `since` or cursor-style parameters.
 
 For teams using OpenTelemetry, OpenInference, Langfuse, Phoenix, LangSmith, Braintrust, or custom trace JSON, monitoring and ingestion should be adapter-based.
 

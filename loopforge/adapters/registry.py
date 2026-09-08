@@ -9,6 +9,7 @@ from typing import Any
 
 from loopforge.adapters.hosted import HostedTraceAdapter, SUPPORTED_HOSTED_TYPES
 from loopforge.adapters.jsonl import JsonlTraceAdapter
+from loopforge.adapters.sync import read_sync_state, update_sync_state_from_traces
 from loopforge.models.trace import Trace
 from loopforge.paths import PROJECT_CONFIG
 
@@ -181,19 +182,34 @@ def read_traces(root: Path, path_override: str | None = None) -> tuple[str, list
             if not path:
                 unsupported.append(connector_status(source))
                 continue
-            traces.extend(JsonlTraceAdapter(path).read(root))
+            source_traces = JsonlTraceAdapter(path).read(root)
+            update_sync_state_from_traces(
+                root,
+                source_id=source.source_id,
+                source_type=source.source_type,
+                traces=source_traces,
+            )
+            traces.extend(source_traces)
             source_ids.append(source.source_id)
         else:
             status = connector_status(source)
             if status.status == "ready" and source.source_type in SUPPORTED_HOSTED_TYPES:
-                traces.extend(
-                    HostedTraceAdapter(
-                        source.source_id,
-                        source.source_type,
-                        source.settings,
-                        _credential_value(source, status.required_env),
-                    ).read(root)
+                prior_state = read_sync_state(root, source.source_id)
+                source_traces = HostedTraceAdapter(
+                    source.source_id,
+                    source.source_type,
+                    source.settings,
+                    _credential_value(source, status.required_env),
+                    since=prior_state.high_watermark_started_at if prior_state else None,
+                    cursor=prior_state.cursor if prior_state else None,
+                ).read(root)
+                update_sync_state_from_traces(
+                    root,
+                    source_id=source.source_id,
+                    source_type=source.source_type,
+                    traces=source_traces,
                 )
+                traces.extend(source_traces)
                 source_ids.append(source.source_id)
             else:
                 unsupported.append(status)

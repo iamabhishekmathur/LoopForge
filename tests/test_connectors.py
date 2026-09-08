@@ -12,6 +12,7 @@ from loopforge.adapters.registry import (
     read_traces,
 )
 from loopforge.adapters.hosted import HostedTraceAdapter
+from loopforge.adapters.sync import read_sync_state
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -97,6 +98,11 @@ def test_read_traces_uses_all_jsonl_sources(tmp_path: Path) -> None:
 
     assert source_label == "local"
     assert [trace.trace_id for trace in traces] == ["tr_1"]
+    state = read_sync_state(tmp_path, "local")
+    assert state is not None
+    assert state.trace_count == 1
+    assert state.high_watermark_started_at == "2026-01-01T00:00:00Z"
+    assert state.last_trace_id == "tr_1"
 
 
 def test_connectors_cli_shows_fixture_source(tmp_path: Path) -> None:
@@ -126,6 +132,23 @@ def test_hosted_adapter_normalizes_langsmith_fixture() -> None:
     assert traces[0].spans[0].type == "tool_call"
     assert traces[0].spans[0].name == "cancel_subscription"
     assert traces[0].spans[0].side_effect_class == "destructive"
+
+
+def test_hosted_adapter_endpoint_includes_incremental_state() -> None:
+    adapter = HostedTraceAdapter(
+        "prod",
+        "langsmith",
+        {"base_url": "https://api.example.test", "project": "support-agent"},
+        since="2026-01-01T00:00:00Z",
+        cursor="abc",
+    )
+
+    endpoint = adapter._endpoint()
+
+    assert endpoint.startswith("https://api.example.test/runs?")
+    assert "project=support-agent" in endpoint
+    assert "since=2026-01-01T00%3A00%3A00Z" in endpoint
+    assert "cursor=abc" in endpoint
 
 
 def test_hosted_adapter_normalizes_langfuse_fixture() -> None:
@@ -191,3 +214,7 @@ traces:
 
     assert source_label == "prod"
     assert traces[0].trace_id == "prod:ls-run-1"
+    state = read_sync_state(tmp_path, "prod")
+    assert state is not None
+    assert state.source_type == "langsmith"
+    assert state.trace_count == 1

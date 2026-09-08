@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/trace-sync-state.schema.json",
+  "title": "LoopForge Trace Sync State",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "source_id",
+    "source_type",
+    "status",
+    "synced_at",
+    "trace_count"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_type": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["succeeded", "failed"]
+    },
+    "synced_at": {
+      "type": "string"
+    },
+    "trace_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "high_watermark_started_at": {
+      "type": ["string", "null"]
+    },
+    "last_trace_id": {
+      "type": ["string", "null"]
+    },
+    "cursor": {
+      "type": ["string", "null"]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

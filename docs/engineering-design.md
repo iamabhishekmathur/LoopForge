@@ -148,6 +148,7 @@ MVP:
 - SQLite for metadata.
 - File system for traces, patches, evals, and reports.
 - JSONL for portable datasets.
+- File-backed connector sync state for local high-watermarks and cursors.
 
 Later:
 

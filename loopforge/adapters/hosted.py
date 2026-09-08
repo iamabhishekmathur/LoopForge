@@ -31,6 +31,8 @@ class HostedTraceAdapter(TraceAdapter):
     source_type: str
     settings: dict[str, str]
     api_key: str | None = None
+    since: str | None = None
+    cursor: str | None = None
     id: str = "hosted"
 
     def read(self, root: Path) -> list[Trace]:
@@ -71,6 +73,8 @@ class HostedTraceAdapter(TraceAdapter):
                 "limit": self.settings.get("limit"),
                 "from": self.settings.get("from"),
                 "to": self.settings.get("to"),
+                "since": self.settings.get("since") or self.since,
+                "cursor": self.settings.get("cursor") or self.cursor,
             }.items()
             if value
         }

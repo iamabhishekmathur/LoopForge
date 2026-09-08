@@ -11,6 +11,7 @@ from .paths import LOCAL_DIR, PROJECT_CONFIG
 DEFAULT_LOCAL_DIRS = [
     "analysis",
     "cache",
+    "connectors",
     "evals",
     "index",
     "issues",
