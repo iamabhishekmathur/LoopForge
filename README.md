@@ -69,10 +69,7 @@ loopforge.yaml
 
 The project can also adapt to existing layouts. Teams should not have to reorganize their agent repo to try it.
 
-## Documents
-
-- [Product Spec](docs/product-spec.md)
-- [Engineering Design](docs/engineering-design.md)
+## Reference
 - [Trace Source Setup](docs/trace-source-setup.md)
 - [Confirmation Report Schema](schemas/confirmation-report.schema.json)
 - [Eval Example Schema](schemas/eval-example.schema.json)
@@ -239,9 +236,9 @@ loopforge pr --dry-run PATCH-0001
 
 The right first outcome is not automatic mutation. It is a trace-backed issue, a grounded harness patch, a drafted regression eval, gates, and a reviewable PR artifact.
 
-## MVP Wedge
+## Fast Adoption Path
 
-The first 30 minute onboarding experience should build trust before asking for behavior-patch trust:
+The first 30 minutes should prove LoopForge can inspect the repo, read traces, and draft evidence-backed artifacts without changing production behavior:
 
 ```text
 loopforge demo --path /tmp/loopforge-demo --force
@@ -257,7 +254,7 @@ loopforge issues show ISSUE_ID
 loopforge evals show EVAL_ID
 ```
 
-The broader MVP can still support gated behavior-patch PRs:
+After the first trusted run, use the gated patch workflow:
 
 ```text
 loopforge monitor --once
@@ -287,7 +284,7 @@ For teams using GitHub, PR generation should work out of the box. GitLab and loc
 
 ## Customer Test Gate
 
-Before putting LoopForge in front of a design partner, run the finite readiness path:
+Before putting LoopForge in front of a teammate, run the finite readiness path:
 
 ```bash
 python -m loopforge demo --path /tmp/loopforge-demo --force
@@ -316,7 +313,7 @@ LoopForge includes a local simulation under [simulations/support-cancel-agent](s
 python simulations/support-cancel-agent/run_simulation.py
 ```
 
-The generated `simulation-output.md` shows the exact outputs an internal user should expect, including discovered harness artifacts, `ISSUE-0001`, `EVAL-0001`, `PATCH-0001`, a passing gate, and a dry-run PR artifact.
+The generated `simulation-output.md` shows the exact outputs a new user should expect, including discovered harness artifacts, `ISSUE-0001`, `EVAL-0001`, `PATCH-0001`, a passing gate, and a dry-run PR artifact.
 
 Hosted trace sources can be configured with either a recorded fixture for local
 validation or a live HTTP endpoint:
@@ -346,6 +343,7 @@ python -m loopforge demo --path /tmp/loopforge-demo --force
 python -m loopforge redact preview
 python -m loopforge connectors list
 python -m loopforge connectors doctor
+python -m loopforge connectors sample-config langsmith
 python -m loopforge discover
 python -m loopforge manifest show
 python -m loopforge states list
@@ -425,40 +423,3 @@ Framework runtime examples:
 - [OpenAI Agents SDK-style runtime metadata](examples/openai_agents_runtime.py)
 
 Release checklist: [RELEASE.md](RELEASE.md).
-
-## Design Principles
-
-- Evidence over vibes.
-- Automatic monitoring by default.
-- AI-observed and AI-drafted by default.
-- Probabilistic harness intelligence.
-- Canonical failure ontology with local extensions.
-- Codebase-grounded diagnosis.
-- Runtime manifests over repository guesses.
-- Structured refinement operation ledger for every proposed harness edit.
-- Validated evaluators before blocking gates.
-- Human-approved release boundary by default.
-- Local-first and self-hostable.
-- Stack-neutral trace ingestion.
-- Git-native harness artifacts.
-- Small patches to the correct layer.
-- Every accepted fix strengthens eval coverage.
-- No production mutation without an explicit gate.
-- Trust ramp from read-only monitoring to eval PRs to gated behavior-patch PRs.
-- Privacy-preserving defaults.
-- Works with existing tools rather than replacing them.
-
-## Public Inspiration
-
-LoopForge is meant to interoperate with, not replace, the existing ecosystem:
-
-- [LangSmith Engine](https://docs.langchain.com/langsmith/engine) for trace-to-issue-to-fix workflows.
-- [Langfuse](https://github.com/langfuse/langfuse) for open-source tracing, evals, prompts, datasets, and experiments.
-- [Arize Phoenix](https://github.com/Arize-ai/phoenix) for open-source AI observability and evaluation.
-- [Promptfoo](https://www.promptfoo.dev/docs/intro/) for prompt and LLM app evals in CI.
-- [DSPy](https://github.com/stanfordnlp/dspy) and [GEPA](https://github.com/CerebrasResearch/gepa) for prompt and program optimization.
-- [OpenAI Deployment Simulation](https://openai.com/index/deployment-simulation/) as a public example of replaying realistic conversations against candidate models.
-- [Anthropic Responsible Scaling Policy](https://www.anthropic.com/news/reflections-on-our-responsible-scaling-policy) as an example of gated capability evaluation and mitigation.
-- [Google DeepMind Frontier Safety](https://deepmind.google/frontier-safety/) as an example of lifecycle safety evaluation.
-- [Meta Llama model cards](https://github.com/meta-llama/llama-models/blob/main/models/llama4/MODEL_CARD.md) as an example of system-level protections, red teaming, and app-context evaluation.
-- [Continual Harness](https://arxiv.org/abs/2605.09998) as research evidence that trajectory-driven harness state refinement can close part of the gap to hand-engineered agent scaffolding.

@@ -52,7 +52,7 @@ The closed-loop paths today are:
 | S3/GCS/Azure Blob direct object listing | Not yet | Use scheduled export to local JSONL or expose an internal HTTP gateway. |
 | Warehouses and event streams | Not yet direct | Use scheduled export to JSONL before LoopForge runs. |
 
-MVP guidance: start with a fixture or JSONL export if live cloud access would slow onboarding. Move to hosted connectors after the first trusted run.
+Recommended path: start with a fixture or JSONL export if live cloud access would slow onboarding. Move to hosted connectors after the first trusted run.
 
 ## Decision Tree
 
@@ -325,9 +325,9 @@ LoopForge may not have enough trace evidence yet. Check whether traces contain f
 
 The drafted evaluator may be correct but not yet eligible as a blocking gate. Add more positive and negative examples, then rerun monitoring.
 
-## Recommended Internal-Onboarding Path
+## Recommended Rollout Path
 
-For internal users trying LoopForge against an existing customer-style codebase:
+For teams trying LoopForge against an existing agent codebase:
 
 1. Configure a recorded provider fixture first.
 2. Run `loopforge readiness`.
