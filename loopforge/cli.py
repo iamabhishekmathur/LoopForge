@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument(
         "--trace-path",
         default="traces/*.jsonl",
-        help="Default local JSONL trace glob.",
+        help="Default local JSONL trace glob. Quote shell globs, e.g. 'traces/*.jsonl'.",
     )
     init.add_argument(
         "--framework",
@@ -350,7 +350,7 @@ def command_readiness(_: argparse.Namespace) -> int:
     if redaction.finding_count:
         print("- Fail: redaction preview found sensitive-looking values.")
     if not failed_health and not bad_connectors and not failed_schemas and not redaction.finding_count:
-        print("- Pass: ready for a local design-partner test.")
+        print("- Pass: ready for a local internal-user test.")
 
     return 1 if failed_health or bad_connectors or failed_schemas or redaction.finding_count else 0
 

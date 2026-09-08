@@ -68,7 +68,7 @@ def test_readiness_passes_for_initialized_project(tmp_path: Path) -> None:
     assert init.returncode == 0, init.stderr
     assert readiness.returncode == 0, readiness.stderr
     assert "Customer Test Gate" in readiness.stdout
-    assert "Pass: ready for a local design-partner test" in readiness.stdout
+    assert "Pass: ready for a local internal-user test" in readiness.stdout
 
 
 def test_readiness_fails_when_redaction_finds_sensitive_values(tmp_path: Path) -> None:

@@ -143,3 +143,20 @@ def test_discover_finds_skill_and_policy_style_artifacts(tmp_path: Path) -> None
     }
     by_type = {artifact.artifact_type: artifact for artifact in artifacts}
     assert by_type["skill"].metadata["anchors"][0]["text"] == "Cancel Skill"
+
+
+def test_discover_skips_trace_jsonl_files(tmp_path: Path) -> None:
+    (tmp_path / "harness").mkdir()
+    (tmp_path / "traces").mkdir()
+    (tmp_path / "harness" / "system.md").write_text(
+        "You are a support agent.",
+        encoding="utf-8",
+    )
+    (tmp_path / "traces" / "prod.jsonl").write_text(
+        '{"schema_version":"1","trace_id":"tr_1","started_at":"2026-09-08T10:00:00Z","inputs":{},"spans":[]}\n',
+        encoding="utf-8",
+    )
+
+    artifacts = discover_harness_artifacts(tmp_path)
+
+    assert {artifact.artifact_type for artifact in artifacts} == {"system_prompt"}

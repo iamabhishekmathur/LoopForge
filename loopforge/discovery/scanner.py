@@ -13,6 +13,7 @@ from loopforge.models.harness import HarnessArtifact
 
 TEXT_SUFFIXES = {".md", ".txt", ".yaml", ".yml", ".json", ".jsonl", ".py", ".ts", ".tsx", ".js"}
 SKIP_PARTS = {".git", ".loopforge", "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv"}
+TRACE_DATA_PARTS = {"traces", "observability", "logs"}
 
 
 def discover_harness_artifacts(root: Path) -> list[HarnessArtifact]:
@@ -160,7 +161,10 @@ def _iter_candidate_files(root: Path) -> list[Path]:
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in SKIP_PARTS for part in path.relative_to(root).parts):
+        parts = path.relative_to(root).parts
+        if any(part in SKIP_PARTS for part in parts):
+            continue
+        if any(part in TRACE_DATA_PARTS for part in parts):
             continue
         if path.suffix.lower() not in TEXT_SUFFIXES:
             continue

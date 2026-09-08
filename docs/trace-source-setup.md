@@ -85,6 +85,7 @@ Use the LoopForge SDK/runtime examples to emit normalized traces before trying h
 ### Local JSONL
 
 Use this when traces are already on disk or exported by a cron job.
+When passing a glob as a command-line argument, quote it so shells such as zsh do not expand it before LoopForge reads it.
 
 ```yaml
 traces:
