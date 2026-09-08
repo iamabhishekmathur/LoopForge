@@ -11,6 +11,7 @@ from loopforge.adapters.registry import (
     connector_statuses,
     read_traces,
 )
+from loopforge.adapters.hosted import HostedTraceAdapter
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -109,3 +110,84 @@ def test_connectors_cli_shows_fixture_source(tmp_path: Path) -> None:
     assert "ready" in list_result.stdout
     assert doctor_result.returncode == 0
     assert "ok" in doctor_result.stdout
+
+
+def test_hosted_adapter_normalizes_langsmith_fixture() -> None:
+    adapter = HostedTraceAdapter(
+        "prod",
+        "langsmith",
+        {"fixture_path": "tests/fixtures/langsmith-runs.json"},
+    )
+
+    traces = adapter.read(REPO_ROOT)
+
+    assert traces[0].trace_id == "prod:ls-run-1"
+    assert traces[0].source_trace_id == "ls-run-1"
+    assert traces[0].spans[0].type == "tool_call"
+    assert traces[0].spans[0].name == "cancel_subscription"
+    assert traces[0].spans[0].side_effect_class == "destructive"
+
+
+def test_hosted_adapter_normalizes_langfuse_fixture() -> None:
+    adapter = HostedTraceAdapter(
+        "prod",
+        "langfuse",
+        {"fixture_path": "tests/fixtures/langfuse-traces.json"},
+    )
+
+    traces = adapter.read(REPO_ROOT)
+
+    assert traces[0].trace_id == "prod:lf-trace-1"
+    assert traces[0].spans[0].type == "tool_call"
+    assert traces[0].feedback[0]["value"] == 0
+
+
+def test_hosted_adapter_normalizes_braintrust_fixture() -> None:
+    adapter = HostedTraceAdapter(
+        "prod",
+        "braintrust",
+        {"fixture_path": "tests/fixtures/braintrust-traces.json"},
+    )
+
+    traces = adapter.read(REPO_ROOT)
+
+    assert traces[0].trace_id == "prod:bt-trace-1"
+    assert traces[0].spans[0].type == "llm_call"
+    assert traces[0].feedback == [{"type": "score", "value": 1}]
+
+
+def test_hosted_adapter_normalizes_opentelemetry_fixture() -> None:
+    adapter = HostedTraceAdapter(
+        "prod",
+        "opentelemetry",
+        {"fixture_path": "tests/fixtures/otel-traces.json"},
+    )
+
+    traces = adapter.read(REPO_ROOT)
+
+    assert traces[0].trace_id == "prod:otel-trace-1"
+    assert traces[0].spans[0].type == "llm_call"
+
+
+def test_read_traces_can_ingest_hosted_fixture_source(tmp_path: Path) -> None:
+    (tmp_path / "loopforge.yaml").write_text(
+        """
+traces:
+  sources:
+    - id: prod
+      type: langsmith
+      fixture_path: fixture.json
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "fixture.json").write_text(
+        (REPO_ROOT / "tests" / "fixtures" / "langsmith-runs.json").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+
+    source_label, traces = read_traces(tmp_path)
+
+    assert source_label == "prod"
+    assert traces[0].trace_id == "prod:ls-run-1"

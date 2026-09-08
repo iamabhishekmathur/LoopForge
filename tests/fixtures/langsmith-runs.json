@@ -1,0 +1,23 @@
+{
+  "runs": [
+    {
+      "id": "ls-run-1",
+      "name": "Support agent",
+      "run_type": "chain",
+      "start_time": "2026-01-01T00:00:00Z",
+      "end_time": "2026-01-01T00:00:03Z",
+      "inputs": {"message": "cancel my plan"},
+      "outputs": {"message": "done"},
+      "feedback": [{"type": "thumbs", "value": "down"}],
+      "child_runs": [
+        {
+          "id": "ls-tool-1",
+          "name": "cancel_subscription",
+          "run_type": "tool",
+          "start_time": "2026-01-01T00:00:01Z",
+          "side_effect_class": "destructive"
+        }
+      ]
+    }
+  ]
+}

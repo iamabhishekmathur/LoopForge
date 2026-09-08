@@ -1,0 +1,20 @@
+{
+  "data": [
+    {
+      "id": "lf-trace-1",
+      "timestamp": "2026-01-01T01:00:00Z",
+      "input": {"message": "cancel it"},
+      "output": {"message": "cancelled"},
+      "observations": [
+        {
+          "id": "lf-obs-1",
+          "name": "cancel_subscription",
+          "type": "tool",
+          "start_time": "2026-01-01T01:00:02Z",
+          "side_effect_class": "destructive"
+        }
+      ],
+      "feedback": [{"type": "score", "value": 0}]
+    }
+  ]
+}

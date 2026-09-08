@@ -110,6 +110,19 @@ For teams using OpenTelemetry, OpenInference, Langfuse, Phoenix, LangSmith, Brai
 
 For teams using GitHub, PR generation should work out of the box. GitLab and local patch export can follow.
 
+Hosted trace sources can be configured with either a recorded fixture for local
+validation or a live HTTP endpoint:
+
+```yaml
+traces:
+  sources:
+    - id: prod-langsmith
+      type: langsmith
+      base_url: https://api.smith.langchain.com
+      project: support-agent
+      limit: 100
+```
+
 ## Development
 
 Run the CLI from source:

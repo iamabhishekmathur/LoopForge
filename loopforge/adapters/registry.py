@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from loopforge.adapters.hosted import HostedTraceAdapter, SUPPORTED_HOSTED_TYPES
 from loopforge.adapters.jsonl import JsonlTraceAdapter
 from loopforge.models.trace import Trace
 from loopforge.paths import PROJECT_CONFIG
@@ -116,6 +117,32 @@ def connector_status(source: TraceSourceConfig) -> TraceConnectorStatus:
         )
 
     if source.source_type in HOSTED_CONNECTORS:
+        if source.settings.get("fixture_path"):
+            return TraceConnectorStatus(
+                source.source_id,
+                source.source_type,
+                "ready",
+                f"reads recorded provider fixture from {source.settings['fixture_path']}",
+            )
+        if source.source_type in SUPPORTED_HOSTED_TYPES and (
+            source.settings.get("url") or source.settings.get("base_url")
+        ):
+            required_env = HOSTED_CONNECTORS[source.source_type]
+            if required_env and not _credential_value(source, required_env):
+                return TraceConnectorStatus(
+                    source.source_id,
+                    source.source_type,
+                    "needs_credentials",
+                    f"set {required_env} before enabling hosted ingestion",
+                    required_env,
+                )
+            return TraceConnectorStatus(
+                source.source_id,
+                source.source_type,
+                "ready",
+                "fetches hosted trace payloads over HTTP",
+                required_env,
+            )
         required_env = HOSTED_CONNECTORS[source.source_type]
         if required_env and not os.environ.get(required_env):
             return TraceConnectorStatus(
@@ -157,7 +184,19 @@ def read_traces(root: Path, path_override: str | None = None) -> tuple[str, list
             traces.extend(JsonlTraceAdapter(path).read(root))
             source_ids.append(source.source_id)
         else:
-            unsupported.append(connector_status(source))
+            status = connector_status(source)
+            if status.status == "ready" and source.source_type in SUPPORTED_HOSTED_TYPES:
+                traces.extend(
+                    HostedTraceAdapter(
+                        source.source_id,
+                        source.source_type,
+                        source.settings,
+                        _credential_value(source, status.required_env),
+                    ).read(root)
+                )
+                source_ids.append(source.source_id)
+            else:
+                unsupported.append(status)
 
     if traces:
         return ",".join(source_ids), traces
@@ -177,3 +216,11 @@ def _source_from_mapping(data: dict[str, str], index: int) -> TraceSourceConfig:
 def _apply_key_value(target: dict[str, str], item: str) -> None:
     key, value = item.split(":", 1)
     target[key.strip()] = value.strip().strip("\"'")
+
+
+def _credential_value(source: TraceSourceConfig, env_name: str | None) -> str | None:
+    if source.settings.get("api_key"):
+        return source.settings["api_key"]
+    if env_name:
+        return os.environ.get(env_name)
+    return None
