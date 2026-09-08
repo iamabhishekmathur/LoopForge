@@ -149,3 +149,29 @@ def _aggregate_confidence(evidence: list[TraceFeatureScore]) -> float:
     mean_score = sum(item.score for item in evidence) / len(evidence)
     recurrence_bonus = min(0.12, 0.025 * max(0, len(evidence) - 1))
     return round(min(0.97, mean_score + recurrence_bonus), 2)
+
+
+def diagnosis_from_dict(payload: dict[str, Any]) -> FailureDiagnosis:
+    return FailureDiagnosis(
+        ontology_id=str(payload["ontology_id"]),
+        confidence=float(payload["confidence"]),
+        severity=str(payload["severity"]),
+        trace_observability=str(payload["trace_observability"]),
+        evidence_trace_ids=list(payload["evidence_trace_ids"]),
+        implicated_tools=list(payload["implicated_tools"]),
+        recommended_patch_layers=list(payload["recommended_patch_layers"]),
+        root_cause_hypotheses=list(payload["root_cause_hypotheses"]),
+        trace_scores=[
+            TraceFeatureScore(
+                trace_id=str(item["trace_id"]),
+                score=float(item["score"]),
+                tool_calls=list(item.get("tool_calls") or []),
+                side_effect_classes=list(item.get("side_effect_classes") or []),
+                factors=dict(item.get("factors") or {}),
+                evidence_span_ids=list(item.get("evidence_span_ids") or []),
+            )
+            for item in payload.get("trace_scores", [])
+            if isinstance(item, dict)
+        ],
+        calibration=dict(payload.get("calibration") or {}),
+    )

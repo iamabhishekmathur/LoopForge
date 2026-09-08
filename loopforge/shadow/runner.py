@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from loopforge.adapters.registry import read_traces
+from loopforge.analysis.judge import write_diagnosis
 from loopforge.db import Store
 from loopforge.discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from loopforge.discovery.scanner import discover_harness_artifacts, write_harness_index
@@ -61,6 +62,18 @@ def run_shadow_pipeline(
         eval_count = 0
         validation_count = 0
         for issue in issues:
+            diagnosis_payload = issue.metadata.get("diagnosis")
+            if isinstance(diagnosis_payload, dict):
+                from loopforge.analysis.authorization import diagnosis_from_dict
+
+                diagnosis_path = write_diagnosis(root, diagnosis_from_dict(diagnosis_payload))
+                issue = replace(
+                    issue,
+                    metadata={
+                        **issue.metadata,
+                        "diagnosis_artifact": diagnosis_path.relative_to(root).as_posix(),
+                    },
+                )
             generated = generate_eval_for_issue(issue, traces)
             if generated is not None:
                 eval_example, evaluator = generated

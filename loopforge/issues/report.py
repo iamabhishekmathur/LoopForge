@@ -13,6 +13,7 @@ def issue_report_markdown(issue: Issue) -> str:
     artifacts = issue.metadata.get("implicated_artifacts", [])
     eval_artifacts = issue.metadata.get("eval_artifacts", [])
     diagnosis = issue.metadata.get("diagnosis", {})
+    diagnosis_artifact = issue.metadata.get("diagnosis_artifact")
     return f"""# {issue.issue_id}: {issue.title}
 
 Status: {issue.status}
@@ -42,6 +43,7 @@ Confidence: {issue.confidence:.2f}
 ## Scorer Provenance
 
 {_diagnosis_lines(diagnosis)}
+{_diagnosis_artifact_line(diagnosis_artifact)}
 
 ## Recommended Patch Layers
 
@@ -100,6 +102,10 @@ def _diagnosis_lines(diagnosis: object) -> str:
             if isinstance(item, dict):
                 lines.append(f"  - `{item.get('trace_id')}`: `{item.get('score')}`")
     return "\n".join(lines) if lines else "- No scorer details recorded."
+
+
+def _diagnosis_artifact_line(path: object) -> str:
+    return f"- Diagnosis artifact: `{path}`" if path else ""
 
 
 def _artifact_lines(artifacts: object) -> str:

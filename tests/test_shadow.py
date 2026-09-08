@@ -58,13 +58,16 @@ def test_shadow_ingests_traces_and_writes_issue_report(tmp_path: Path) -> None:
     assert ".loopforge/evals/EVAL-0001.json" in report_text
     assert "structured_probabilistic_v1" in report_text
     assert "Trace scores" in report_text
+    assert ".loopforge/analysis/ACTION_AUTHORIZATION_ERROR.json" in report_text
 
     eval_path = project_root / ".loopforge" / "evals" / "EVAL-0001.json"
     evaluator_path = project_root / ".loopforge" / "evals" / "EVALUATOR-0001.json"
     validation_path = project_root / ".loopforge" / "evals" / "EVALUATOR-0001-validation.json"
+    diagnosis_path = project_root / ".loopforge" / "analysis" / "ACTION_AUTHORIZATION_ERROR.json"
     assert eval_path.is_file()
     assert evaluator_path.is_file()
     assert validation_path.is_file()
+    assert diagnosis_path.is_file()
     eval_payload = json.loads(eval_path.read_text(encoding="utf-8"))
     validation_payload = json.loads(validation_path.read_text(encoding="utf-8"))
     assert {"type": "forbidden_tool_call", "tool": "cancel_subscription"} in eval_payload["assertions"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from loopforge.analysis.authorization import diagnose_action_authorization
+from loopforge.analysis.judge import DiagnosisJudge, LocalFallbackJudge
 from loopforge.models.issue import Issue
 from loopforge.models.harness import HarnessArtifact
 from loopforge.models.trace import Trace
@@ -13,9 +14,16 @@ def mine_issues(
     traces: list[Trace],
     trajectories: list[TraceTrajectory],
     artifacts: list[HarnessArtifact] | None = None,
+    judge: DiagnosisJudge | None = None,
 ) -> list[Issue]:
     """Mine issue candidates from confidence-bearing trajectory diagnoses."""
-    diagnosis = diagnose_action_authorization(traces, trajectories)
+    fallback = diagnose_action_authorization(traces, trajectories)
+    diagnosis = (judge or LocalFallbackJudge()).diagnose(
+        traces,
+        trajectories,
+        artifacts or [],
+        fallback,
+    )
     if diagnosis is None:
         return []
 
