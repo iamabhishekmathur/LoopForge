@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/evaluator-validation.schema.json",
+  "title": "LoopForge Evaluator Validation",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "evaluator_id",
+    "failure_mode_id",
+    "ontology_version",
+    "evaluator_type",
+    "output_type",
+    "validation_status",
+    "blocking_gate_eligible"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "evaluator_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "failure_mode_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ontology_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evaluator_type": {
+      "type": "string",
+      "enum": [
+        "contractual_check",
+        "llm_judge",
+        "pairwise_judge",
+        "replay_scorer",
+        "cost_latency_scorer",
+        "composite_scorer"
+      ]
+    },
+    "output_type": {
+      "type": "string",
+      "enum": ["binary", "score", "label", "composite"]
+    },
+    "validation_status": {
+      "type": "string",
+      "enum": ["provisional", "validated", "rejected", "needs_more_evidence"]
+    },
+    "ai_drafted": {
+      "type": "boolean"
+    },
+    "evidence_sources": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "trace_evidence",
+          "synthetic_counterexamples",
+          "replay_results",
+          "reviewer_outcomes",
+          "human_labels",
+          "contract_spec"
+        ]
+      }
+    },
+    "positive_examples": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "negative_examples": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "false_positive_examples": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "false_negative_examples": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "train_slice_id": {
+      "type": "string"
+    },
+    "dev_slice_id": {
+      "type": "string"
+    },
+    "test_slice_id": {
+      "type": "string"
+    },
+    "true_positive_rate": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "true_negative_rate": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "precision": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "recall": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "minimum_sample_size_met": {
+      "type": "boolean"
+    },
+    "confidence_interval": {
+      "type": "object",
+      "properties": {
+        "method": {"type": "string"},
+        "lower": {"type": "number"},
+        "upper": {"type": "number"}
+      },
+      "additionalProperties": false
+    },
+    "judge_prompt_hash": {
+      "type": "string"
+    },
+    "judge_model_config_hash": {
+      "type": "string"
+    },
+    "contractual_check_hash": {
+      "type": "string"
+    },
+    "frozen_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "read_test_once": {
+      "type": "boolean"
+    },
+    "pass_k_reliability": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "pass_at_k_capability": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "reset_replay_failure_rate": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "blocking_gate_eligible": {
+      "type": "boolean"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/trace.schema.json",
+  "title": "LoopForge Trace",
+  "type": "object",
+  "required": ["schema_version", "trace_id", "started_at", "inputs", "spans"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ended_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "runtime_manifest_id": {
+      "type": "string"
+    },
+    "source_trace_id": {
+      "type": "string"
+    },
+    "replay_mode": {
+      "type": "string",
+      "enum": ["none", "recorded_output", "mocked", "sandbox", "dry_run"]
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "feedback": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "value"],
+        "properties": {
+          "type": {"type": "string"},
+          "value": {},
+          "comment": {"type": "string"},
+          "metadata": {"type": "object", "additionalProperties": true}
+        },
+        "additionalProperties": false
+      }
+    },
+    "spans": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/span"
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "span": {
+      "type": "object",
+      "required": ["span_id", "type", "name", "started_at"],
+      "properties": {
+        "span_id": {"type": "string", "minLength": 1},
+        "parent_span_id": {"type": ["string", "null"]},
+        "type": {
+          "type": "string",
+          "enum": [
+            "llm_call",
+            "tool_call",
+            "retrieval",
+            "memory_read",
+            "memory_write",
+            "router",
+            "skill",
+            "validator",
+            "human_approval",
+            "application",
+            "error"
+          ]
+        },
+        "name": {"type": "string", "minLength": 1},
+        "input": {"type": "object", "additionalProperties": true},
+        "output": {"type": "object", "additionalProperties": true},
+        "error": {"type": "string"},
+        "side_effect_class": {
+          "type": "string",
+          "enum": [
+            "read",
+            "draft",
+            "write",
+            "money_movement",
+            "external_message",
+            "destructive",
+            "unknown"
+          ]
+        },
+        "started_at": {"type": "string", "format": "date-time"},
+        "ended_at": {"type": "string", "format": "date-time"},
+        "metadata": {"type": "object", "additionalProperties": true}
+      },
+      "additionalProperties": false
+    }
+  }
+}

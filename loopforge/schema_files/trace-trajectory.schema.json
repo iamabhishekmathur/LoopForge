@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/trace-trajectory.schema.json",
+  "title": "LoopForge Trace Trajectory",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "trajectory_id",
+    "trace_id",
+    "started_at",
+    "span_count",
+    "tool_calls",
+    "side_effect_classes",
+    "error_count",
+    "feedback_values",
+    "evidence_span_ids",
+    "signals"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "trajectory_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "runtime_manifest_id": {
+      "type": ["string", "null"]
+    },
+    "span_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "tool_calls": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "side_effect_classes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "read",
+          "draft",
+          "write",
+          "money_movement",
+          "external_message",
+          "destructive",
+          "unknown"
+        ]
+      }
+    },
+    "error_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "feedback_values": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "evidence_span_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "signals": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

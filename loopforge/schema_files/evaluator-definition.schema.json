@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/evaluator-definition.schema.json",
+  "title": "LoopForge Evaluator Definition",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "evaluator_id",
+    "eval_id",
+    "issue_id",
+    "failure_mode_id",
+    "ontology_version",
+    "evaluator_type",
+    "output_type",
+    "assertions",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "evaluator_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "eval_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issue_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "failure_mode_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ontology_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evaluator_type": {
+      "type": "string",
+      "enum": [
+        "contractual_check",
+        "llm_judge",
+        "pairwise_judge",
+        "replay_scorer",
+        "cost_latency_scorer",
+        "composite_scorer"
+      ]
+    },
+    "output_type": {
+      "type": "string",
+      "enum": ["binary", "score", "label", "composite"]
+    },
+    "assertions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {"type": "string"},
+          "tool": {"type": "string"},
+          "claim": {"type": "string"},
+          "metadata": {"type": "object", "additionalProperties": true}
+        },
+        "additionalProperties": false
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["drafted", "validated", "rejected", "retired"]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

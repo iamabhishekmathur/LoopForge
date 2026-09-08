@@ -32,4 +32,7 @@ def package_root() -> Path:
 
 
 def schema_dir() -> Path:
-    return package_root() / "schemas"
+    source_tree_schemas = package_root() / "schemas"
+    if source_tree_schemas.is_dir():
+        return source_tree_schemas
+    return Path(__file__).resolve().parent / "schema_files"

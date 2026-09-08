@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/harness-artifact.schema.json",
+  "title": "LoopForge Harness Artifact",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_id",
+    "artifact_type",
+    "path",
+    "confidence",
+    "last_indexed_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "artifact_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_type": {
+      "type": "string",
+      "enum": [
+        "system_prompt",
+        "developer_prompt",
+        "skill",
+        "tool_definition",
+        "tool_schema",
+        "tool_description",
+        "routing_policy",
+        "permission_policy",
+        "context_policy",
+        "memory_interface",
+        "eval_suite",
+        "eval_dataset",
+        "scorer",
+        "agent_graph",
+        "prompt_registry_reference",
+        "framework_adapter"
+      ]
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "symbol_or_anchor": {
+      "type": ["string", "null"]
+    },
+    "summary": {
+      "type": ["string", "null"]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "discovered_by": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "last_indexed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "target_artifact_id", "confidence"],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "target_artifact_id": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

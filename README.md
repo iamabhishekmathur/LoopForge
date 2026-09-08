@@ -187,6 +187,10 @@ docker run --rm -v "$PWD:/workspace" -w /workspace loopforge monitor --once
 
 GitHub Actions example: [examples/github-action.yml](examples/github-action.yml).
 
+Runtime SDK example: [examples/runtime_sdk.py](examples/runtime_sdk.py).
+
+Release checklist: [RELEASE.md](RELEASE.md).
+
 ## Design Principles
 
 - Evidence over vibes.
