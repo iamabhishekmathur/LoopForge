@@ -801,7 +801,15 @@ def command_gate(args: argparse.Namespace) -> int:
         validations = store.list_validations_for_issue(patch.issue_id)
         replay_report = run_replay(patch, issue, evals)
         write_replay_report(root, replay_report)
-        report = run_gates(patch, issue, evals, validations, replay_report)
+        operation_history = store.list_refinement_operations()
+        report = run_gates(
+            patch,
+            issue,
+            evals,
+            validations,
+            replay_report,
+            operation_history=operation_history,
+        )
         report_path = write_gate_report(root, report)
         patch_status = "gated" if report.status in {"pass", "warn", "needs_human_review"} else "rejected"
         store.upsert_patch_bundle(replace(patch, status=patch_status).to_dict())

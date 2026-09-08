@@ -7,6 +7,7 @@ from pathlib import Path
 
 from loopforge.models.patch import GateReport, PatchBundle
 from loopforge.paths import LOCAL_DIR
+from loopforge.refinements.concentration import analyze_patch_concentration
 from loopforge.replay.runner import ReplayReport, run_replay
 
 
@@ -16,8 +17,10 @@ def run_gates(
     evals: list[dict[str, object]],
     validations: list[dict[str, object]],
     replay_report: ReplayReport | None = None,
+    operation_history: list[dict[str, object]] | None = None,
 ) -> GateReport:
     replay_report = replay_report or run_replay(patch, issue, evals)
+    concentration = analyze_patch_concentration(patch, operation_history or [])
     suites = [
         _scope_suite(patch),
         _grounding_suite(patch, issue),
@@ -26,9 +29,12 @@ def run_gates(
         _eval_coverage_suite(patch, evals),
         _evaluator_validation_suite(validations),
         _replay_sandbox_suite(patch, replay_report),
+        concentration.to_suite(),
     ]
-    status = "pass" if all(suite["status"] == "pass" for suite in suites) else "reject"
-    recommendation = "merge_after_human_review" if status == "pass" else "revise"
+    rejected = any(suite["status"] in {"reject", "error"} for suite in suites)
+    warned = any(suite["status"] == "warn" for suite in suites)
+    status = "reject" if rejected else "warn" if warned else "pass"
+    recommendation = "merge_after_human_review" if status in {"pass", "warn"} else "revise"
     return GateReport(
         gate_report_id=f"GATE-{patch.patch_id}",
         patch_id=patch.patch_id,
@@ -46,9 +52,12 @@ def run_gates(
             "runtime_manifest_coverage": _runtime_manifest_coverage(patch),
             "artifact_grounding_confidence": _min_artifact_confidence(patch),
             "diagnosis_confidence": _diagnosis_confidence(issue),
-            "recommendation_quality_level": "gated_patch" if status == "pass" else "patch_candidate",
+            "recommendation_quality_level": "gated_patch"
+            if status in {"pass", "warn"}
+            else "patch_candidate",
             "replay_sandbox": replay_report.status,
             "replay_id": replay_report.replay_id,
+            "patch_concentration": concentration.level,
         },
         metadata={
             "ai_drafted": True,

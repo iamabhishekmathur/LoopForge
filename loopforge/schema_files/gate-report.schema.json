@@ -88,9 +88,21 @@
           "type": "string",
           "enum": ["observation", "hypothesis", "patch_candidate", "gated_patch", "trusted_pattern"]
         },
+        "diagnosis_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
         "replay_sandbox": {
           "type": "string",
           "enum": ["pass", "warn", "reject", "not_applicable"]
+        },
+        "replay_id": {
+          "type": "string"
+        },
+        "patch_concentration": {
+          "type": "string",
+          "enum": ["low", "high"]
         }
       },
       "additionalProperties": false
