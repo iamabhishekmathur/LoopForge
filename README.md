@@ -95,6 +95,140 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Trace Sync State Schema](schemas/trace-sync-state.schema.json)
 - [Trace Trajectory Schema](schemas/trace-trajectory.schema.json)
 
+## Install Into An Agent Repo
+
+Run these commands from the root of the customer's agent codebase.
+
+### 1. Install LoopForge
+
+For local development from this repository:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+For a packaged install after release:
+
+```bash
+pipx install loopforge
+```
+
+Success looks like:
+
+```bash
+loopforge --help
+```
+
+### 2. Initialize The Repo
+
+```bash
+loopforge init
+```
+
+For common agent stacks, start with a framework recipe:
+
+```bash
+loopforge init --framework langgraph
+loopforge init --framework openai-agents
+loopforge init --framework vercel-ai
+```
+
+This creates `loopforge.yaml` and a local `.loopforge/` workspace. The config file tells LoopForge what project it is inspecting, where traces come from, how monitoring should run, and which gates must pass before a patch becomes reviewable.
+
+Success looks like:
+
+```text
+loopforge.yaml
+.loopforge/agent-profile.md
+.loopforge/connectors/
+.loopforge/issues/
+.loopforge/patches/
+.loopforge/reports/
+```
+
+### 3. Point LoopForge At Traces
+
+Edit `loopforge.yaml` so `traces.sources` points at the customer's observability system.
+
+Local JSONL traces:
+
+```yaml
+traces:
+  sources:
+    - id: local-jsonl
+      type: jsonl
+      path: traces/*.jsonl
+```
+
+Recorded provider export for offline validation:
+
+```yaml
+traces:
+  sources:
+    - id: staging-langsmith
+      type: langsmith
+      fixture_path: observability/langsmith/runs.json
+```
+
+Hosted provider endpoint:
+
+```yaml
+traces:
+  sources:
+    - id: prod-langsmith
+      type: langsmith
+      base_url: https://api.smith.langchain.com
+      project: support-agent
+      limit: 100
+```
+
+Use environment variables for hosted credentials, such as `LANGSMITH_API_KEY`, `LANGFUSE_PUBLIC_KEY`, or `BRAINTRUST_API_KEY`.
+
+Success looks like:
+
+```bash
+loopforge connectors doctor
+```
+
+The connector should report `ready` for local files, recorded fixtures, or fully credentialed hosted sources.
+
+### 4. Run The Safety Gate
+
+```bash
+loopforge readiness
+```
+
+This checks project shape, connector usability, packaged schemas, and a local redaction preview. If it fails, fix this before asking engineers to trust any recommendation.
+
+### 5. Build The First Harness Index
+
+```bash
+loopforge discover
+```
+
+Success looks like a list of discovered harness artifacts: system prompts, Skills, tool definitions, routing policy, context policy, permission policy, and eval datasets where present.
+
+### 6. Run The First Closed Loop
+
+```bash
+loopforge monitor --once --last 24h
+loopforge queue run-next
+loopforge issues list
+loopforge refinements list
+```
+
+If LoopForge finds a recurring issue, inspect the recommendation:
+
+```bash
+loopforge issues show ISSUE-0001
+loopforge evals show EVAL-0001
+loopforge refinements preview REFINE-0001-0001
+loopforge gate PATCH-0001
+loopforge pr --dry-run PATCH-0001
+```
+
+The right first outcome is not automatic mutation. It is a trace-backed issue, a grounded harness patch, a drafted regression eval, gates, and a reviewable PR artifact.
+
 ## MVP Wedge
 
 The first 30 minute onboarding experience should build trust before asking for behavior-patch trust:
