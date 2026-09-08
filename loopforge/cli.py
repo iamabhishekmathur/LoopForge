@@ -21,11 +21,13 @@ from .models.issue import Issue
 from .models.monitor import MonitorRun
 from .models.patch import PatchBundle, GateReport
 from .models.pr import PullRequestArtifact
+from .models.refinement import RefinementOperation
 from .models.runtime import RuntimeHarnessManifest
 from .paths import PROJECT_CONFIG, find_project_root, require_project_root
 from .patching.generator import generate_patch_for_issue, write_patch_bundle
 from .prs.generator import generate_pr_artifact, pr_markdown, write_pr_artifact
 from .prs.opener import PrOpenError, open_pull_request
+from .refinements.ledger import refinement_operations_for_patch, write_refinement_operations
 from .gates.runner import run_gates, write_gate_report
 from .replay.runner import run_replay, write_replay_report
 from .schemas import validate_all_schemas
@@ -124,6 +126,12 @@ def build_parser() -> argparse.ArgumentParser:
     patch_subparsers.add_parser("list", help="List drafted patch bundles.")
     patch_show = patch_subparsers.add_parser("show", help="Show one drafted patch bundle.")
     patch_show.add_argument("patch_id")
+
+    refinements = subparsers.add_parser("refinements", help="Inspect refinement operations.")
+    refinement_subparsers = refinements.add_subparsers(dest="refinement_command", required=True)
+    refinement_subparsers.add_parser("list", help="List drafted refinement operations.")
+    refinement_show = refinement_subparsers.add_parser("show", help="Show one refinement operation.")
+    refinement_show.add_argument("operation_id")
 
     gate = subparsers.add_parser("gate", help="Run local acceptance gates for a patch bundle.")
     gate.add_argument("patch_id")
@@ -607,8 +615,13 @@ def command_propose(args: argparse.Namespace) -> int:
         if patch is None:
             print(f"error: no grounded patch available for {args.issue_id}", file=sys.stderr)
             return 1
+        issue = Issue.from_dict(issue_payload)
+        operations = refinement_operations_for_patch(issue, patch)
         paths = write_patch_bundle(root, patch)
+        operation_paths = write_refinement_operations(root, operations)
         store.upsert_patch_bundle(patch.to_dict())
+        for operation in operations:
+            store.upsert_refinement_operation(operation.to_dict())
     finally:
         store.close()
 
@@ -617,6 +630,9 @@ def command_propose(args: argparse.Namespace) -> int:
     print(f"  status: {patch.status}")
     print(f"  bundle: {paths['json'].relative_to(root)}")
     print(f"  diff: {paths['diff'].relative_to(root)}")
+    print(f"  refinements: {len(operations)}")
+    for path in operation_paths:
+        print(f"    {path.relative_to(root)}")
     return 0
 
 
@@ -657,6 +673,43 @@ def command_patches_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_refinements_list(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        operations = store.list_refinement_operations()
+    finally:
+        store.close()
+
+    if not operations:
+        print("No refinement operations found.")
+        return 0
+
+    for operation in operations:
+        print(
+            f"{operation['operation_id']}  {operation['status']:7}  "
+            f"{operation['operation_type']:6}  {operation['component_type']:16}  "
+            f"patch={operation['patch_id']}  issue={operation['issue_id']}"
+        )
+    return 0
+
+
+def command_refinements_show(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        operation_payload = store.get_refinement_operation(args.operation_id)
+    finally:
+        store.close()
+
+    if operation_payload is None:
+        print(f"error: refinement operation not found: {args.operation_id}", file=sys.stderr)
+        return 1
+
+    print(_refinement_detail(RefinementOperation.from_dict(operation_payload)))
+    return 0
+
+
 def command_gate(args: argparse.Namespace) -> int:
     root = require_project_root(Path.cwd())
     store = Store.for_project(root)
@@ -678,6 +731,20 @@ def command_gate(args: argparse.Namespace) -> int:
         report_path = write_gate_report(root, report)
         patch_status = "gated" if report.status in {"pass", "warn", "needs_human_review"} else "rejected"
         store.upsert_patch_bundle(replace(patch, status=patch_status).to_dict())
+        operation_status = "gated" if patch_status == "gated" else "rejected"
+        for operation_payload in store.list_refinement_operations_for_patch(patch.patch_id):
+            operation = RefinementOperation.from_dict(operation_payload)
+            updated_operation = replace(
+                operation,
+                status=operation_status,
+                metadata={
+                    **operation.metadata,
+                    "latest_gate_report_id": report.gate_report_id,
+                    "latest_gate_status": report.status,
+                },
+            )
+            write_refinement_operations(root, [updated_operation])
+            store.upsert_refinement_operation(updated_operation.to_dict())
         store.upsert_replay_report(replay_report.to_dict())
         store.upsert_gate_report(report.to_dict())
     finally:
@@ -986,6 +1053,41 @@ def _patch_detail(patch: PatchBundle, gate_payload: dict[str, object] | None) ->
     return "\n".join(lines)
 
 
+def _refinement_detail(operation: RefinementOperation) -> str:
+    lines = [
+        f"# {operation.operation_id}",
+        "",
+        f"Status: {operation.status}",
+        f"Operation: `{operation.operation_type}`",
+        f"Component: `{operation.component_type}`",
+        f"Artifact: `{operation.artifact_path}`",
+        f"Issue: `{operation.issue_id}`",
+        f"Patch: `{operation.patch_id}`",
+        f"Confidence: `{operation.confidence}`",
+        f"Created: `{operation.created_at}`",
+        "",
+        "## Rationale",
+        "",
+        operation.rationale,
+        "",
+        "## Evidence",
+        "",
+        f"- Traces: {', '.join(f'`{trace_id}`' for trace_id in operation.source_trace_ids) or 'None'}",
+        f"- Evals: {', '.join(f'`{eval_id}`' for eval_id in operation.source_eval_ids) or 'None'}",
+        "",
+        "## Diff Summary",
+        "",
+        operation.diff_summary,
+        "",
+        "## Provenance",
+        "",
+        "```json",
+        json.dumps(operation.provenance, indent=2, sort_keys=True),
+        "```",
+    ]
+    return "\n".join(lines)
+
+
 def run(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1028,6 +1130,10 @@ def run(argv: list[str] | None = None) -> int:
         return command_patches_list(args)
     if args.command == "patches" and args.patch_command == "show":
         return command_patches_show(args)
+    if args.command == "refinements" and args.refinement_command == "list":
+        return command_refinements_list(args)
+    if args.command == "refinements" and args.refinement_command == "show":
+        return command_refinements_show(args)
     if args.command == "gate":
         return command_gate(args)
     if args.command == "replay":

@@ -79,6 +79,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Monitor Run Schema](schemas/monitor-run.schema.json)
 - [Patch Bundle Schema](schemas/patch-bundle.schema.json)
 - [PR Artifact Schema](schemas/pr-artifact.schema.json)
+- [Refinement Operation Schema](schemas/refinement-operation.schema.json)
 - [Replay Report Schema](schemas/replay-report.schema.json)
 - [Runtime Harness Manifest Schema](schemas/runtime-harness-manifest.schema.json)
 - [Trace Schema](schemas/trace.schema.json)
@@ -103,6 +104,7 @@ The broader MVP can still support gated behavior-patch PRs:
 ```text
 loopforge propose ISSUE_ID
 loopforge propose ISSUE_ID --layer system_prompt
+loopforge refinements list
 loopforge gate PATCH_ID
 loopforge pr --dry-run PATCH_ID
 loopforge pr open PR_ID
@@ -144,6 +146,7 @@ python -m loopforge dashboard build
 python -m loopforge evals list
 python -m loopforge propose ISSUE-0001
 python -m loopforge patches list
+python -m loopforge refinements list
 python -m loopforge replay PATCH-0001
 python -m loopforge gate PATCH-0001
 python -m loopforge pr --dry-run PATCH-0001
@@ -168,6 +171,7 @@ PYTHONPATH=../.. python -m loopforge evals list
 PYTHONPATH=../.. python -m loopforge evals show EVAL-0001
 PYTHONPATH=../.. python -m loopforge propose ISSUE-0001
 PYTHONPATH=../.. python -m loopforge patches show PATCH-0001
+PYTHONPATH=../.. python -m loopforge refinements list
 PYTHONPATH=../.. python -m loopforge gate PATCH-0001
 PYTHONPATH=../.. python -m loopforge pr --dry-run PATCH-0001
 ```
@@ -200,6 +204,7 @@ Release checklist: [RELEASE.md](RELEASE.md).
 - Canonical failure ontology with local extensions.
 - Codebase-grounded diagnosis.
 - Runtime manifests over repository guesses.
+- Structured refinement operation ledger for every proposed harness edit.
 - Validated evaluators before blocking gates.
 - Human-approved release boundary by default.
 - Local-first and self-hostable.

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/refinement-operation.schema.json",
+  "title": "LoopForge Refinement Operation",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "operation_id",
+    "operation_type",
+    "component_type",
+    "artifact_id",
+    "artifact_path",
+    "issue_id",
+    "patch_id",
+    "status",
+    "source_trace_ids",
+    "source_eval_ids",
+    "confidence",
+    "rationale",
+    "diff_summary",
+    "provenance",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "operation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operation_type": {
+      "type": "string",
+      "enum": ["create", "update", "delete", "noop"]
+    },
+    "component_type": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "sub_agent",
+        "skill",
+        "memory",
+        "tool",
+        "policy",
+        "eval",
+        "scorer",
+        "harness_artifact"
+      ]
+    },
+    "artifact_id": {
+      "type": "string"
+    },
+    "artifact_path": {
+      "type": "string"
+    },
+    "issue_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "patch_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["drafted", "gated", "rejected", "merged", "retired"]
+    },
+    "source_trace_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "source_eval_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "rationale": {
+      "type": "string"
+    },
+    "diff_summary": {
+      "type": "string"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

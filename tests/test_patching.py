@@ -8,6 +8,7 @@ from loopforge.discovery.scanner import discover_harness_artifacts
 from loopforge.evals.generator import generate_eval_for_issue
 from loopforge.issues.miner import mine_issues
 from loopforge.patching.generator import generate_patch_for_issue
+from loopforge.refinements.ledger import refinement_operations_for_patch
 from loopforge.replay.runner import run_replay
 from loopforge.trajectories.builder import build_trajectory
 
@@ -36,6 +37,24 @@ def test_generate_patch_for_grounded_authorization_issue() -> None:
     assert patch.metadata["diagnosis_confidence"] == issue.confidence
     assert "explicitly confirmed" in patch.diff
     assert "harness/system.md" not in patch.diff
+
+    operations = refinement_operations_for_patch(
+        issue,
+        patch,
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    assert len(operations) == 1
+    operation = operations[0]
+    assert operation.operation_id == "REFINE-0001-0001"
+    assert operation.operation_type == "update"
+    assert operation.component_type == "tool"
+    assert operation.artifact_path == "harness/tools/cancel_subscription.yaml"
+    assert operation.patch_id == "PATCH-0001"
+    assert operation.source_trace_ids == issue.evidence_trace_ids
+    assert operation.source_eval_ids == ["EVAL-0001"]
+    assert operation.provenance["ai_observed"] is True
+    assert operation.provenance["requires_human_approval"] is True
+    assert "additions" in operation.diff_summary
 
 
 def test_generate_permission_policy_patch_when_requested(tmp_path: Path) -> None:

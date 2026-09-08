@@ -139,6 +139,11 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     propose = run_loopforge(["propose", "ISSUE-0001"], project_root)
     patches_list = run_loopforge(["patches", "list"], project_root)
     patches_show = run_loopforge(["patches", "show", "PATCH-0001"], project_root)
+    refinements_list = run_loopforge(["refinements", "list"], project_root)
+    refinements_show = run_loopforge(
+        ["refinements", "show", "REFINE-0001-0001"],
+        project_root,
+    )
     premature_pr = run_loopforge(["pr", "--dry-run", "PATCH-0001"], project_root)
     gate = run_loopforge(["gate", "PATCH-0001"], project_root)
     patches_show_after_gate = run_loopforge(["patches", "show", "PATCH-0001"], project_root)
@@ -150,19 +155,32 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     assert shadow.returncode == 0
     assert propose.returncode == 0, propose.stderr
     assert "Drafted patch PATCH-0001" in propose.stdout
+    assert "refinements: 1" in propose.stdout
     assert patches_list.returncode == 0
     assert "PATCH-0001" in patches_list.stdout
     assert patches_show.returncode == 0
     assert "explicitly confirmed" in patches_show.stdout
+    assert refinements_list.returncode == 0, refinements_list.stderr
+    assert "REFINE-0001-0001" in refinements_list.stdout
+    assert "tool" in refinements_list.stdout
+    assert refinements_show.returncode == 0, refinements_show.stderr
+    assert "Trace-backed issue ISSUE-0001" in refinements_show.stdout
+    assert "requires_human_approval" in refinements_show.stdout
     assert premature_pr.returncode == 1
     assert "patch must pass gates" in premature_pr.stderr
     assert gate.returncode == 0, gate.stderr
     assert "status: pass" in gate.stdout
     assert "merge_after_human_review" in gate.stdout
     patches_list_after_gate = run_loopforge(["patches", "list"], project_root)
+    refinements_show_after_gate = run_loopforge(
+        ["refinements", "show", "REFINE-0001-0001"],
+        project_root,
+    )
     assert "PATCH-0001  gated" in patches_list_after_gate.stdout
     assert patches_show_after_gate.returncode == 0
     assert "Latest Gate" in patches_show_after_gate.stdout
+    assert refinements_show_after_gate.returncode == 0, refinements_show_after_gate.stderr
+    assert "Status: gated" in refinements_show_after_gate.stdout
     assert pr.returncode == 0, pr.stderr
     assert "Drafted PR artifact PR-PATCH-0001" in pr.stdout
     assert "loopforge/issue-0001/cancel-subscription" in pr.stdout
@@ -177,6 +195,9 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
 
     assert (project_root / ".loopforge" / "patches" / "PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "patches" / "PATCH-0001.diff").is_file()
+    assert (
+        project_root / ".loopforge" / "refinements" / "REFINE-0001-0001.json"
+    ).is_file()
     assert (project_root / ".loopforge" / "reports" / "GATE-PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "reports" / "REPLAY-PATCH-0001.json").is_file()
     assert (project_root / ".loopforge" / "prs" / "PR-PATCH-0001.json").is_file()
@@ -189,3 +210,13 @@ def test_propose_and_gate_commands_create_patch_and_report(tmp_path: Path) -> No
     )
     assert pr_payload["metadata"]["requires_human_approval"] is True
     assert "GATE-PATCH-0001" in pr_payload["body"] or "Gate Results" in pr_payload["body"]
+
+    refinement_payload = json.loads(
+        (
+            project_root / ".loopforge" / "refinements" / "REFINE-0001-0001.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert refinement_payload["component_type"] == "tool"
+    assert refinement_payload["patch_id"] == "PATCH-0001"
+    assert refinement_payload["status"] == "gated"
+    assert refinement_payload["metadata"]["latest_gate_status"] == "pass"

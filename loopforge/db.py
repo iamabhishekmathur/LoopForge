@@ -81,6 +81,19 @@ create table if not exists patch_bundles (
   foreign key(issue_id) references issues(issue_id)
 );
 
+create table if not exists refinement_operations (
+  operation_id text primary key,
+  operation_type text not null,
+  component_type text not null,
+  issue_id text not null,
+  patch_id text not null,
+  status text not null,
+  created_at text not null,
+  payload_json text not null,
+  foreign key(issue_id) references issues(issue_id),
+  foreign key(patch_id) references patch_bundles(patch_id)
+);
+
 create table if not exists gate_reports (
   gate_report_id text primary key,
   patch_id text not null,
@@ -384,6 +397,60 @@ class Store:
         row = self.connection.execute(
             "select payload_json from patch_bundles where patch_id = ?",
             (patch_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def upsert_refinement_operation(self, operation: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into refinement_operations(
+              operation_id, operation_type, component_type, issue_id, patch_id,
+              status, created_at, payload_json
+            )
+            values (?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict(operation_id) do update set
+              operation_type=excluded.operation_type,
+              component_type=excluded.component_type,
+              issue_id=excluded.issue_id,
+              patch_id=excluded.patch_id,
+              status=excluded.status,
+              created_at=excluded.created_at,
+              payload_json=excluded.payload_json
+            """,
+            (
+                operation["operation_id"],
+                operation["operation_type"],
+                operation["component_type"],
+                operation["issue_id"],
+                operation["patch_id"],
+                operation["status"],
+                operation["created_at"],
+                json.dumps(operation, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_refinement_operations(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from refinement_operations order by created_at desc, operation_id"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def list_refinement_operations_for_patch(self, patch_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            select payload_json from refinement_operations
+            where patch_id = ?
+            order by operation_id
+            """,
+            (patch_id,),
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def get_refinement_operation(self, operation_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from refinement_operations where operation_id = ?",
+            (operation_id,),
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None
 
