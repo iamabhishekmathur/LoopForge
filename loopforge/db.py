@@ -99,6 +99,14 @@ create table if not exists pr_artifacts (
   foreign key(patch_id) references patch_bundles(patch_id),
   foreign key(issue_id) references issues(issue_id)
 );
+
+create table if not exists monitor_runs (
+  run_id text primary key,
+  status text not null,
+  started_at text not null,
+  finished_at text,
+  payload_json text not null
+);
 """
 
 
@@ -424,5 +432,38 @@ class Store:
         row = self.connection.execute(
             "select payload_json from pr_artifacts where pr_id = ?",
             (pr_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def upsert_monitor_run(self, run: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into monitor_runs(run_id, status, started_at, finished_at, payload_json)
+            values (?, ?, ?, ?, ?)
+            on conflict(run_id) do update set
+              status=excluded.status,
+              finished_at=excluded.finished_at,
+              payload_json=excluded.payload_json
+            """,
+            (
+                run["run_id"],
+                run["status"],
+                run["started_at"],
+                run.get("finished_at"),
+                json.dumps(run, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_monitor_runs(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from monitor_runs order by started_at desc"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def get_monitor_run(self, run_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from monitor_runs where run_id = ?",
+            (run_id,),
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None

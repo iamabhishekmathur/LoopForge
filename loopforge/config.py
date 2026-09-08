@@ -228,6 +228,14 @@ def configured_max_prs_per_day(root: Path) -> int:
         return 0
 
 
+def configured_monitor_schedule(root: Path) -> str:
+    return _first_scalar_config_value(root, "schedule") or "every 6 hours"
+
+
+def configured_monitor_trace_window(root: Path) -> str:
+    return _first_scalar_config_value(root, "trace_window") or "24 hours"
+
+
 def _first_scalar_config_value(root: Path, key: str) -> str | None:
     config_path = root / PROJECT_CONFIG
     if not config_path.exists():

@@ -75,6 +75,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Harness Artifact Schema](schemas/harness-artifact.schema.json)
 - [Issue Event Schema](schemas/issue-event.schema.json)
 - [Issue Schema](schemas/issue.schema.json)
+- [Monitor Run Schema](schemas/monitor-run.schema.json)
 - [Patch Bundle Schema](schemas/patch-bundle.schema.json)
 - [PR Artifact Schema](schemas/pr-artifact.schema.json)
 - [Runtime Harness Manifest Schema](schemas/runtime-harness-manifest.schema.json)
@@ -117,6 +118,8 @@ python -m loopforge --help
 python -m loopforge init
 python -m loopforge doctor
 python -m loopforge discover
+python -m loopforge monitor --once
+python -m loopforge monitor --list-runs
 python -m loopforge evals list
 python -m loopforge propose ISSUE-0001
 python -m loopforge patches list
@@ -135,6 +138,8 @@ Run the fixture-backed shadow loop:
 ```bash
 cd fixtures/support-agent
 PYTHONPATH=../.. python -m loopforge shadow --last 24h
+PYTHONPATH=../.. python -m loopforge monitor --once --last 24h
+PYTHONPATH=../.. python -m loopforge monitor --list-runs
 PYTHONPATH=../.. python -m loopforge issues list
 PYTHONPATH=../.. python -m loopforge issues show ISSUE-0001
 PYTHONPATH=../.. python -m loopforge evals list

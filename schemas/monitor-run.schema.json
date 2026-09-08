@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/monitor-run.schema.json",
+  "title": "LoopForge Monitor Run",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "status",
+    "started_at",
+    "finished_at",
+    "window",
+    "trace_path",
+    "counts"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["running", "succeeded", "failed"]
+    },
+    "started_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "finished_at": {
+      "type": ["string", "null"]
+    },
+    "window": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trace_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "error": {
+      "type": ["string", "null"]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

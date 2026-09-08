@@ -4,22 +4,17 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
-from datetime import datetime, timezone
 import sys
 from pathlib import Path
 
-from .adapters.jsonl import JsonlTraceAdapter
 from . import __version__
-from .config import InitOptions, configured_trace_path, initialize_project, inspect_project
+from .config import InitOptions, initialize_project, inspect_project
 from .db import Store
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
-from .evals.artifacts import write_eval_artifacts
-from .evals.generator import generate_eval_for_issue
-from .evals.validator import validate_evaluator
-from .issues.miner import mine_issues
 from .issues.report import issue_report_markdown, write_issue_report
 from .models.eval import EvalExample, EvaluatorDefinition, EvaluatorValidationRecord
 from .models.issue import Issue
+from .models.monitor import MonitorRun
 from .models.patch import PatchBundle, GateReport
 from .models.pr import PullRequestArtifact
 from .paths import PROJECT_CONFIG, find_project_root, require_project_root
@@ -28,7 +23,8 @@ from .prs.generator import generate_pr_artifact, pr_markdown, write_pr_artifact
 from .prs.opener import PrOpenError, open_pull_request
 from .gates.runner import run_gates, write_gate_report
 from .schemas import validate_all_schemas
-from .trajectories.builder import build_trajectory
+from .monitor.runner import iter_monitor_runs, parse_schedule_seconds
+from .shadow.runner import run_shadow_pipeline
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,6 +51,15 @@ def build_parser() -> argparse.ArgumentParser:
     shadow = subparsers.add_parser("shadow", help="Run local trace ingestion and issue mining.")
     shadow.add_argument("--last", default="24h", help="Trace window label for this run.")
     shadow.add_argument("--path", default=None, help="Override JSONL trace glob.")
+
+    monitor = subparsers.add_parser("monitor", help="Run or inspect automatic monitoring.")
+    monitor.add_argument("--once", action="store_true", help="Run one monitor cycle and exit.")
+    monitor.add_argument("--max-runs", type=int, default=None, help="Run N monitor cycles and exit.")
+    monitor.add_argument("--interval", default=None, help="Override schedule, such as '30s' or '5m'.")
+    monitor.add_argument("--last", default=None, help="Override configured trace window.")
+    monitor.add_argument("--path", default=None, help="Override configured trace source path.")
+    monitor.add_argument("--list-runs", action="store_true", help="List persisted monitor runs.")
+    monitor.add_argument("--show-run", default=None, help="Show one persisted monitor run.")
 
     issues = subparsers.add_parser("issues", help="Inspect mined issues.")
     issue_subparsers = issues.add_subparsers(dest="issue_command", required=True)
@@ -178,93 +183,127 @@ def command_discover(_: argparse.Namespace) -> int:
 
 def command_shadow(args: argparse.Namespace) -> int:
     root = require_project_root(Path.cwd())
-    trace_path = args.path or configured_trace_path(root)
-    adapter = JsonlTraceAdapter(trace_path)
     try:
-        traces = adapter.read(root)
+        result = run_shadow_pipeline(root, args.last, args.path)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    print(f"Shadow run complete for window {args.last}")
+    print(f"  traces: {result.trace_count}")
+    print(f"  trajectories: {result.trajectory_count}")
+    print(f"  artifacts: {result.artifact_count}")
+    print(f"  issues: {result.issue_count}")
+    print(f"  evals: {result.eval_count}")
+    print(f"  validations: {result.validation_count}")
+    for report in result.report_paths:
+        print(f"  report: {report.relative_to(root)}")
+    return 0
+
+
+def command_monitor(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    if args.list_runs:
+        return command_monitor_list_runs(root)
+    if args.show_run:
+        return command_monitor_show_run(root, args.show_run)
+
+    max_runs = 1 if args.once else args.max_runs
+    interval_seconds = parse_schedule_seconds(args.interval) if args.interval else None
+    if max_runs is None:
+        print("Starting LoopForge monitor. Press Ctrl-C to stop.")
+
+    try:
+        for run in iter_monitor_runs(
+            root,
+            window=args.last,
+            trace_path=args.path,
+            interval_seconds=interval_seconds,
+            max_runs=max_runs,
+        ):
+            print(_monitor_run_summary(run))
+            if run.status == "failed":
+                return 1
+    except KeyboardInterrupt:
+        print("Monitor stopped.")
+        return 130
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def command_monitor_list_runs(root: Path) -> int:
     store = Store.for_project(root)
     try:
-        artifacts = discover_harness_artifacts(root)
-        write_harness_index(root, artifacts)
-        for artifact in artifacts:
-            store.upsert_harness_artifact(artifact.to_dict())
-
-        trajectories = []
-        for trace in traces:
-            trace_dict = trace.to_dict()
-            trajectory = build_trajectory(trace)
-            trajectories.append(trajectory)
-            store.upsert_trace(trace_dict)
-            store.upsert_trajectory(trajectory.to_dict())
-
-        issues = mine_issues(traces, trajectories, artifacts)
-        reports = []
-        eval_count = 0
-        validation_count = 0
-        for issue in issues:
-            generated = generate_eval_for_issue(issue, traces)
-            if generated is not None:
-                eval_example, evaluator = generated
-                validation = validate_evaluator(issue, evaluator, traces)
-                eval_paths = write_eval_artifacts(root, eval_example, evaluator, validation)
-                store.upsert_eval_example(eval_example.to_dict())
-                store.upsert_evaluator_definition(evaluator.to_dict())
-                store.upsert_evaluator_validation_record(validation.to_dict())
-                eval_count += 1
-                validation_count += 1
-                issue = replace(
-                    issue,
-                    metadata={
-                        **issue.metadata,
-                        "eval_artifacts": [
-                            {
-                                "kind": "eval",
-                                "path": eval_paths["eval"].relative_to(root).as_posix(),
-                                "status": eval_example.status,
-                            },
-                            {
-                                "kind": "evaluator",
-                                "path": eval_paths["evaluator"].relative_to(root).as_posix(),
-                                "status": evaluator.status,
-                            },
-                            {
-                                "kind": "validation",
-                                "path": eval_paths["validation"].relative_to(root).as_posix(),
-                                "status": validation.validation_status,
-                            },
-                        ],
-                    },
-                )
-            issue_dict = issue.to_dict()
-            store.upsert_issue(issue_dict)
-            store.add_issue_event(
-                {
-                    "schema_version": "1",
-                    "event_id": f"{issue.issue_id}-opened",
-                    "issue_id": issue.issue_id,
-                    "event_type": "opened",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "metadata": {"source": "shadow", "window": args.last},
-                }
-            )
-            reports.append(write_issue_report(root, issue))
+        runs = store.list_monitor_runs()
     finally:
         store.close()
 
-    print(f"Shadow run complete for window {args.last}")
-    print(f"  traces: {len(traces)}")
-    print(f"  trajectories: {len(trajectories)}")
-    print(f"  artifacts: {len(artifacts)}")
-    print(f"  issues: {len(issues)}")
-    print(f"  evals: {eval_count}")
-    print(f"  validations: {validation_count}")
-    for report in reports:
-        print(f"  report: {report.relative_to(root)}")
+    if not runs:
+        print("No monitor runs found.")
+        return 0
+
+    for run in runs:
+        counts = run.get("counts") or {}
+        print(
+            f"{run['run_id']}  {run['status']:9}  "
+            f"traces={counts.get('traces', 0)}  issues={counts.get('issues', 0)}"
+        )
     return 0
+
+
+def command_monitor_show_run(root: Path, run_id: str) -> int:
+    store = Store.for_project(root)
+    try:
+        payload = store.get_monitor_run(run_id)
+    finally:
+        store.close()
+
+    if payload is None:
+        print(f"error: monitor run not found: {run_id}", file=sys.stderr)
+        return 1
+
+    print(_monitor_run_detail(MonitorRun.from_dict(payload)))
+    return 0
+
+
+def _monitor_run_summary(run: MonitorRun) -> str:
+    counts = run.counts
+    summary = (
+        f"Monitor run {run.run_id}: {run.status} "
+        f"traces={counts.get('traces', 0)} issues={counts.get('issues', 0)} "
+        f"evals={counts.get('evals', 0)} validations={counts.get('validations', 0)}"
+    )
+    if run.error:
+        summary += f" error={run.error}"
+    return summary
+
+
+def _monitor_run_detail(run: MonitorRun) -> str:
+    lines = [
+        f"# {run.run_id}",
+        "",
+        f"Status: `{run.status}`",
+        f"Started: `{run.started_at}`",
+        f"Finished: `{run.finished_at}`",
+        f"Window: `{run.window}`",
+        f"Trace path: `{run.trace_path}`",
+        "",
+        "## Counts",
+        "",
+    ]
+    if run.counts:
+        lines.extend(f"- {key}: `{value}`" for key, value in sorted(run.counts.items()))
+    else:
+        lines.append("- None")
+    if run.error:
+        lines.extend(["", "## Error", "", run.error])
+    reports = run.metadata.get("reports", [])
+    if isinstance(reports, list) and reports:
+        lines.extend(["", "## Reports", ""])
+        lines.extend(f"- `{report}`" for report in reports)
+    return "\n".join(lines)
 
 
 def command_issues_list(_: argparse.Namespace) -> int:
@@ -726,6 +765,8 @@ def run(argv: list[str] | None = None) -> int:
         return command_discover(args)
     if args.command == "shadow":
         return command_shadow(args)
+    if args.command == "monitor":
+        return command_monitor(args)
     if args.command == "issues" and args.issue_command == "list":
         return command_issues_list(args)
     if args.command == "issues" and args.issue_command == "show":
