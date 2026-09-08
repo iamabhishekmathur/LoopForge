@@ -138,6 +138,7 @@ python -m loopforge discover
 python -m loopforge manifest show
 python -m loopforge monitor --once
 python -m loopforge monitor --list-runs
+python -m loopforge dashboard build
 python -m loopforge evals list
 python -m loopforge propose ISSUE-0001
 python -m loopforge patches list

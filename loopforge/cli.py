@@ -11,6 +11,7 @@ from pathlib import Path
 from . import __version__
 from .adapters.registry import connector_statuses
 from .config import InitOptions, initialize_project, inspect_project
+from .dashboard.render import build_dashboard
 from .db import Store
 from .discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
@@ -57,6 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("doctor", help="Check local LoopForge project health.")
     subparsers.add_parser("discover", help="Discover harness artifacts in this repository.")
+
+    dashboard = subparsers.add_parser("dashboard", help="Build a local read-only dashboard.")
+    dashboard_subparsers = dashboard.add_subparsers(dest="dashboard_command", required=True)
+    dashboard_subparsers.add_parser("build", help="Write .loopforge/dashboard.html.")
 
     manifest = subparsers.add_parser("manifest", help="Inspect runtime harness manifests.")
     manifest_subparsers = manifest.add_subparsers(dest="manifest_command", required=True)
@@ -267,6 +272,13 @@ def command_discover(_: argparse.Namespace) -> int:
     print(f"  manifest: {manifest_path.relative_to(root)}")
     for artifact in artifacts:
         print(f"  {artifact.artifact_type:18} {artifact.confidence:.2f} {artifact.path}")
+    return 0
+
+
+def command_dashboard_build(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    path = build_dashboard(root)
+    print(f"Built dashboard {path.relative_to(root)}")
     return 0
 
 
@@ -941,6 +953,8 @@ def run(argv: list[str] | None = None) -> int:
         return command_doctor(args)
     if args.command == "discover":
         return command_discover(args)
+    if args.command == "dashboard" and args.dashboard_command == "build":
+        return command_dashboard_build(args)
     if args.command == "manifest" and args.manifest_command == "write":
         return command_manifest_write(args)
     if args.command == "manifest" and args.manifest_command == "list":

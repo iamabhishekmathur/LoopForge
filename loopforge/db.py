@@ -407,6 +407,12 @@ class Store:
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None
 
+    def list_gate_reports(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from gate_reports order by gate_report_id"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
     def upsert_pr_artifact(self, pr_artifact: dict[str, Any]) -> None:
         self.connection.execute(
             """
