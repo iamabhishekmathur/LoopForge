@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import __version__
 from .adapters.registry import connector_statuses
-from .config import InitOptions, initialize_project, inspect_project
+from .config import InitOptions, SUPPORTED_FRAMEWORKS, initialize_project, inspect_project
 from .confirmation.runner import confirm_patch_outcome, write_confirmation_report
 from .dashboard.render import build_dashboard
 from .db import Store
@@ -62,11 +62,23 @@ def build_parser() -> argparse.ArgumentParser:
         default="traces/*.jsonl",
         help="Default local JSONL trace glob.",
     )
+    init.add_argument(
+        "--framework",
+        choices=sorted(SUPPORTED_FRAMEWORKS),
+        default="generic",
+        help="Framework recipe to scaffold.",
+    )
     init.add_argument("--force", action="store_true", help="Overwrite existing generated files.")
 
     onboard = subparsers.add_parser("onboard", help="Run the fast LoopForge adoption path.")
     onboard.add_argument("--project-name", default=None, help="Project name for new config.")
     onboard.add_argument("--trace-path", default=None, help="JSONL trace glob for new config or first run.")
+    onboard.add_argument(
+        "--framework",
+        choices=sorted(SUPPORTED_FRAMEWORKS),
+        default="generic",
+        help="Framework recipe to scaffold when initializing.",
+    )
     onboard.add_argument("--last", default=None, help="Trace window for the first monitor run.")
     onboard.add_argument("--skip-monitor", action="store_true", help="Stop after discovery and manifest.")
 
@@ -228,6 +240,7 @@ def command_init(args: argparse.Namespace) -> int:
     options = InitOptions(
         project_name=project_name,
         trace_path=args.trace_path,
+        framework=args.framework,
         force=args.force,
     )
     try:
@@ -271,6 +284,7 @@ def command_onboard(args: argparse.Namespace) -> int:
             InitOptions(
                 project_name=args.project_name or root.name,
                 trace_path=args.trace_path or "traces/*.jsonl",
+                framework=args.framework,
             ),
         )
         print(f"Initialized LoopForge project in {root}")

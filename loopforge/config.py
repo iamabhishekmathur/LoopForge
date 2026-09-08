@@ -20,14 +20,28 @@ DEFAULT_LOCAL_DIRS = [
     "prs",
     "reports",
     "rollbacks",
+    "setup",
     "traces",
 ]
+
+SUPPORTED_FRAMEWORKS = {
+    "generic",
+    "langgraph",
+    "openai-agents",
+    "vercel-ai",
+    "llamaindex",
+    "crewai",
+    "autogen",
+    "mastra",
+    "pydantic-ai",
+}
 
 
 @dataclass(frozen=True)
 class InitOptions:
     project_name: str
     trace_path: str = "traces/*.jsonl"
+    framework: str = "generic"
     force: bool = False
 
 
@@ -35,6 +49,7 @@ def default_config_text(options: InitOptions) -> str:
     return f"""version: 1
 project:
   name: {options.project_name}
+  framework: {options.framework}
 
 monitor:
   enabled: true
@@ -107,6 +122,68 @@ evaluator_validation:
 """
 
 
+def framework_recipe_text(framework: str) -> str:
+    recipes = {
+        "langgraph": (
+            "Capture graph node names, tool calls, state transitions, and checkpointer IDs. "
+            "Emit a runtime manifest when the graph is compiled or deployed."
+        ),
+        "openai-agents": (
+            "Capture agent name, model settings, instructions hash, tool schemas, handoffs, "
+            "guardrails, and run/item spans."
+        ),
+        "vercel-ai": (
+            "Capture model settings, system prompt hash, tool definitions, stream events, "
+            "and server action side-effect boundaries."
+        ),
+        "llamaindex": (
+            "Capture query engine, retriever, tool specs, index version, source nodes, and "
+            "response synthesizer spans."
+        ),
+        "crewai": (
+            "Capture crew, agent role, task, tool calls, delegation events, and process mode."
+        ),
+        "autogen": (
+            "Capture group chat turns, speaker selection, tool/function calls, handoff state, "
+            "and termination conditions."
+        ),
+        "mastra": (
+            "Capture workflow runs, agent instructions, tool definitions, memory/retrieval "
+            "configuration, and step transitions."
+        ),
+        "pydantic-ai": (
+            "Capture agent system prompt, dependency context, tool schemas, structured output "
+            "validators, and result validation spans."
+        ),
+        "generic": (
+            "Capture system/developer prompts, tool schemas, routing decisions, permissions, "
+            "retrieval/context inputs, tool calls, outputs, feedback, and runtime manifest IDs."
+        ),
+    }
+    guidance = recipes.get(framework, recipes["generic"])
+    return f"""# LoopForge Framework Recipe
+
+Framework: {framework}
+
+## Trace Instrumentation
+
+{guidance}
+
+## Runtime Manifest
+
+Emit stable hashes or source references for prompts, tools, policies, context builders,
+retrievers, memory interfaces, eval suites, and agent graph definitions.
+
+## First Closed Loop
+
+1. Run `loopforge discover`.
+2. Run `loopforge monitor --once`.
+3. Run `loopforge queue run-next`.
+4. Review `loopforge refinements preview OPERATION_ID`.
+5. Run `loopforge gate PATCH_ID`.
+"""
+
+
 def default_agent_profile_text(project_name: str) -> str:
     return f"""# Agent Profile
 
@@ -163,6 +240,7 @@ def initialize_project(root: Path, options: InitOptions) -> list[Path]:
     config_path = root / PROJECT_CONFIG
     local_dir = root / LOCAL_DIR
     profile_path = local_dir / "agent-profile.md"
+    framework_path = local_dir / "setup" / f"{options.framework}-recipe.md"
 
     if config_path.exists() and not options.force:
         raise FileExistsError(f"{config_path} already exists. Use --force to overwrite.")
@@ -184,6 +262,11 @@ def initialize_project(root: Path, options: InitOptions) -> list[Path]:
             encoding="utf-8",
         )
         created.append(profile_path)
+
+    if not framework_path.exists() or options.force:
+        framework_path.parent.mkdir(exist_ok=True)
+        framework_path.write_text(framework_recipe_text(options.framework), encoding="utf-8")
+        created.append(framework_path)
 
     return created
 

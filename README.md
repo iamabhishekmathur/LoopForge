@@ -100,6 +100,7 @@ The first 30 minute onboarding experience should build trust before asking for b
 
 ```text
 loopforge init
+loopforge init --framework langgraph
 loopforge connectors doctor
 loopforge discover
 loopforge states list
@@ -157,6 +158,7 @@ Run the CLI from source:
 ```bash
 python -m loopforge --help
 python -m loopforge init
+python -m loopforge init --framework openai-agents
 python -m loopforge onboard
 python -m loopforge doctor
 python -m loopforge connectors list

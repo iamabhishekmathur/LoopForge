@@ -1751,6 +1751,7 @@ def score_tool_sequence(case, trace) -> Score:
 
 ```text
 loopforge init
+loopforge init --framework langgraph
 loopforge connect
 loopforge doctor
 loopforge discover

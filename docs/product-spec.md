@@ -303,6 +303,7 @@ Example:
 
 ```bash
 loopforge init
+loopforge init --framework langgraph
 loopforge connect
 loopforge discover
 loopforge states list
@@ -1033,6 +1034,7 @@ The MVP should support multiple levels. Onboarding should start with AI-observed
 
 - CLI.
 - `loopforge connect` guided adapter setup.
+- Framework-aware `loopforge init --framework ...` recipes for common agent stacks.
 - Local monitoring service with configurable schedules.
 - Local file-based project.
 - SQLite metadata store.

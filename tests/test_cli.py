@@ -29,7 +29,9 @@ def test_init_creates_project_files(tmp_path: Path) -> None:
     assert (tmp_path / "loopforge.yaml").is_file()
     assert (tmp_path / ".loopforge" / "agent-profile.md").is_file()
     assert (tmp_path / ".loopforge" / "issues").is_dir()
+    assert (tmp_path / ".loopforge" / "connectors").is_dir()
     assert (tmp_path / ".loopforge" / "rollbacks").is_dir()
+    assert (tmp_path / ".loopforge" / "setup" / "generic-recipe.md").is_file()
     assert "support-agent" in (tmp_path / "loopforge.yaml").read_text(encoding="utf-8")
 
 
@@ -40,6 +42,21 @@ def test_init_refuses_to_overwrite_existing_config(tmp_path: Path) -> None:
     assert first.returncode == 0
     assert second.returncode == 2
     assert "already exists" in second.stderr
+
+
+def test_init_scaffolds_framework_recipe(tmp_path: Path) -> None:
+    result = run_loopforge(
+        ["init", "--project-name", "support-agent", "--framework", "langgraph"],
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = (tmp_path / "loopforge.yaml").read_text(encoding="utf-8")
+    recipe = (tmp_path / ".loopforge" / "setup" / "langgraph-recipe.md").read_text(
+        encoding="utf-8"
+    )
+    assert "framework: langgraph" in config
+    assert "graph node names" in recipe
 
 
 def test_doctor_reports_healthy_project(tmp_path: Path) -> None:
