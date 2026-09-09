@@ -242,6 +242,8 @@ The right first outcome is not automatic mutation. It is a trace-backed issue, a
 
 LoopForge can identify issues with a pluggable judge. The default mode is local and offline, but teams can opt into recorded AI-judge fixtures for repeatable testing or a live OpenAI-compatible chat endpoint for model-based issue discovery.
 
+The judge acts as a third-party reviewer of the agent harness. It compares what should have happened according to the codebase, agent flow, system prompts, Skills, routing rules, tool contracts, context policy, and guardrails against what actually happened in traces. Issue reports include `Expected vs Actual`, `Behavior Gaps`, and `Violated Contracts` sections when the judge supplies that evidence.
+
 Recorded judge fixture:
 
 ```yaml
@@ -263,7 +265,7 @@ redaction:
   external_llm_allowed: true
 ```
 
-Live judging stays off unless `redaction.external_llm_allowed` is explicitly true. The judge receives compact traces, trajectories, harness-artifact summaries, and any local fallback diagnosis. It must either return a confidence-bearing diagnosis or abstain. Patch generation and PR opening remain gated separately.
+Live judging stays off unless `redaction.external_llm_allowed` is explicitly true. The judge receives compact traces, trajectories, harness-artifact summaries, agent-flow context, and any local fallback diagnosis. It must either return a confidence-bearing diagnosis or abstain. Patch generation and PR opening remain gated separately.
 
 ## Fast Adoption Path
 

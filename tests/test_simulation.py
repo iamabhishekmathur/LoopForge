@@ -66,6 +66,10 @@ def test_acme_agent_platform_simulation_runs_end_to_end(tmp_path: Path) -> None:
     assert "Side-effecting tool call without approval: cancel_subscription" in output
     assert "runtime_enforcement_gap" in output
     assert "policy already indicates confirmation is required" in output
+    assert "Expected vs Actual" in output
+    assert "guardrail_logged_but_did_not_block" in output
+    assert "cancellation_skill_not_followed" in output
+    assert "policy_warning_should_not_allow_destructive_execution" in output
     assert "Status: `validated`" in output
     assert "recommendation: merge_after_human_review" in output
     assert "Retrieval misses and escalation noise are intentionally present" in output

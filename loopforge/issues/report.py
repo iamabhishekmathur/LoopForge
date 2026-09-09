@@ -40,6 +40,18 @@ Confidence: {issue.confidence:.2f}
 
 {_hypothesis_lines(issue)}
 
+## Expected vs Actual
+
+{_expected_actual_lines(diagnosis)}
+
+## Behavior Gaps
+
+{_behavior_gap_lines(diagnosis)}
+
+## Violated Contracts
+
+{_violated_contract_lines(diagnosis)}
+
 ## Scorer Provenance
 
 {_diagnosis_lines(diagnosis)}
@@ -82,6 +94,58 @@ def _hypothesis_lines(issue: Issue) -> str:
 
 def _bullet_lines(items: list[str]) -> str:
     return "\n".join(f"- `{item}`" for item in items) if items else "- None"
+
+
+def _expected_actual_lines(diagnosis: object) -> str:
+    if not isinstance(diagnosis, dict):
+        return "- No expected/actual comparison recorded."
+    expected = diagnosis.get("expected_behavior")
+    observed = diagnosis.get("observed_behavior")
+    if not expected and not observed:
+        return "- No expected/actual comparison recorded."
+    return "\n".join(
+        line
+        for line in [
+            f"- Expected: {expected}" if expected else "",
+            f"- Actual: {observed}" if observed else "",
+        ]
+        if line
+    )
+
+
+def _behavior_gap_lines(diagnosis: object) -> str:
+    if not isinstance(diagnosis, dict):
+        return "- None"
+    gaps = diagnosis.get("behavior_gaps", [])
+    if not isinstance(gaps, list) or not gaps:
+        return "- None"
+    lines = []
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            continue
+        label = gap.get("label", "unknown")
+        confidence = float(gap.get("confidence", 0))
+        expected = gap.get("expected", "not recorded")
+        observed = gap.get("observed", "not recorded")
+        lines.append(f"- `{label}` ({confidence:.2f}): Expected: {expected} Observed: {observed}")
+    return "\n".join(lines) if lines else "- None"
+
+
+def _violated_contract_lines(diagnosis: object) -> str:
+    if not isinstance(diagnosis, dict):
+        return "- None"
+    contracts = diagnosis.get("violated_contracts", [])
+    if not isinstance(contracts, list) or not contracts:
+        return "- None"
+    lines = []
+    for contract in contracts:
+        if not isinstance(contract, dict):
+            continue
+        contract_type = contract.get("contract_type", "contract")
+        label = contract.get("label", "unknown")
+        confidence = float(contract.get("confidence", 0))
+        lines.append(f"- `{label}` ({contract_type}, {confidence:.2f})")
+    return "\n".join(lines) if lines else "- None"
 
 
 def _diagnosis_lines(diagnosis: object) -> str:

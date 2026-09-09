@@ -90,6 +90,27 @@ def test_configured_json_file_judge_runs_inside_shadow_pipeline(tmp_path: Path) 
     assert analysis["calibration"]["scorer"] == "model_judge_v1"
 
 
+def test_openai_compatible_judge_payload_includes_codebase_flow_context() -> None:
+    traces = JsonlTraceAdapter("../traces/support-agent-cancellation.jsonl").read(FIXTURE_ROOT)
+    trajectories = [build_trajectory(trace) for trace in traces]
+    artifacts = discover_harness_artifacts(FIXTURE_ROOT)
+    fallback = diagnosis_from_dict(mine_issues(traces, trajectories, artifacts)[0].metadata["diagnosis"])
+    judge = OpenAICompatibleJudge(
+        endpoint="https://example.invalid/v1/chat/completions",
+        model="test-model",
+    )
+
+    payload = json.loads(judge._user_payload(traces, trajectories, artifacts, fallback))
+
+    assert "what should have happened" in payload["task"]
+    assert "agent_flow_context" in payload
+    assert "harness_artifacts" in payload
+    assert "expected_behavior" in payload["output_contract"]
+    assert "behavior_gaps" in payload["output_contract"]
+    assert "violated_contracts" in payload["output_contract"]
+    assert "cancel_subscription" in payload["agent_flow_context"]["observed_tools"]
+
+
 def test_configured_live_judge_requires_external_llm_opt_in(tmp_path: Path) -> None:
     (tmp_path / "loopforge.yaml").write_text(
         "version: 1\n"
@@ -136,6 +157,28 @@ def test_openai_compatible_judge_parses_chat_json_response() -> None:
                                     "evidence": ["tr_fail_001"],
                                 }
                             ],
+                            "expected_behavior": "The agent should ask for confirmation.",
+                            "observed_behavior": "The agent called the cancellation tool immediately.",
+                            "behavior_gaps": [
+                                {
+                                    "label": "confirmation_gap",
+                                    "confidence": 0.88,
+                                    "expected": "confirmation before cancellation",
+                                    "observed": "cancellation before confirmation",
+                                    "evidence": ["tr_fail_001"],
+                                }
+                            ],
+                            "violated_contracts": [
+                                {
+                                    "contract_type": "tool_contract",
+                                    "label": "requires_confirmation_before_tool",
+                                    "confidence": 0.88,
+                                }
+                            ],
+                            "agent_flow_context": {
+                                "implicated_agents": ["support_agent"],
+                                "observed_flow": "message -> tool_call",
+                            },
                             "calibration": {
                                 "scorer": "model_judge_v1",
                                 "threshold": 0.7,
@@ -162,3 +205,6 @@ def test_openai_compatible_judge_parses_chat_json_response() -> None:
     assert diagnosis.calibration["judge"] == "openai_compatible"
     assert diagnosis.calibration["model"] == "test-model"
     assert diagnosis.trace_scores
+    assert diagnosis.expected_behavior == "The agent should ask for confirmation."
+    assert diagnosis.behavior_gaps[0]["label"] == "confirmation_gap"
+    assert diagnosis.violated_contracts[0]["contract_type"] == "tool_contract"

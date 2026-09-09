@@ -120,12 +120,18 @@ class OpenAICompatibleJudge:
         fallback: FailureDiagnosis | None,
     ) -> str:
         payload = {
-            "task": "Identify one recurring agent-harness issue from these traces, or abstain.",
+            "task": (
+                "Identify one recurring agent-harness issue from these traces, or abstain. "
+                "Compare what should have happened according to the codebase, harness, "
+                "agent flow, policies, Skills, and tool contracts against what actually "
+                "happened in the traces."
+            ),
             "output_contract": ISSUE_JUDGE_OUTPUT_CONTRACT,
             "fallback_diagnosis": fallback.to_dict() if fallback else None,
             "traces": [_compact_trace(trace) for trace in traces],
             "trajectories": [trajectory.to_dict() for trajectory in trajectories],
             "harness_artifacts": [_compact_artifact(artifact) for artifact in artifacts],
+            "agent_flow_context": _agent_flow_context(traces, trajectories, artifacts),
         }
         text = json.dumps(payload, indent=2, sort_keys=True)
         if len(text) <= self.max_payload_chars:
@@ -135,6 +141,7 @@ class OpenAICompatibleJudge:
             "traces": [_compact_trace(trace, max_spans=4) for trace in traces[:25]],
             "trajectories": [trajectory.to_dict() for trajectory in trajectories[:25]],
             "harness_artifacts": [_compact_artifact(artifact) for artifact in artifacts[:40]],
+            "agent_flow_context": _agent_flow_context(traces[:25], trajectories[:25], artifacts[:40]),
             "truncation": {
                 "reason": "payload exceeded max_payload_chars",
                 "max_payload_chars": self.max_payload_chars,
@@ -146,6 +153,8 @@ class OpenAICompatibleJudge:
 ISSUE_JUDGE_SYSTEM_PROMPT = """You are LoopForge's issue-discovery judge for AI agent traces.
 
 Review trace clusters and harness artifacts probabilistically. Identify a recurring issue only when the evidence is strong enough for a skeptical agent engineer to investigate. Prefer abstaining over inventing a problem.
+
+Act as an independent third-party reviewer of the agent harness. Infer what should have happened from the codebase summary, agent flow, system prompts, Skills, routing, tool contracts, permission policies, context rules, and evaluator seeds. Compare that expected behavior with what actually happened in traces. Flag gaps where guardrails did not work, rules were not followed, Skills failed to shape behavior, routing failed, context was misused, or runtime enforcement contradicted policy.
 
 Return one JSON object. Do not include Markdown. Use the provided output contract exactly. Include counterevidence and false-positive risks in calibration when relevant. Never propose code changes directly; only diagnose the issue and likely harness layers.
 """
@@ -161,6 +170,11 @@ ISSUE_JUDGE_OUTPUT_CONTRACT = {
     "implicated_tools": "array of tool names",
     "recommended_patch_layers": "array such as permission_policy, tool_description, system_prompt, skill, routing_policy, context_policy, eval",
     "root_cause_hypotheses": "array of objects with label, confidence, explanation, evidence",
+    "expected_behavior": "string explaining what should have happened according to harness/codebase/agent-flow context",
+    "observed_behavior": "string explaining what actually happened in evidence traces",
+    "behavior_gaps": "array of objects with label, confidence, expected, observed, evidence",
+    "violated_contracts": "array of objects naming guardrails, rules, Skills, routing, context, tool, eval, or runtime contracts that appear violated",
+    "agent_flow_context": "object summarizing implicated agents, tools, span sequence, and relevant harness artifacts",
     "calibration": "object with scorer, threshold, observable_from_traces, false_positive_risks",
 }
 
@@ -254,4 +268,49 @@ def _compact_artifact(artifact: HarnessArtifact) -> dict[str, object]:
             "signals": artifact.metadata.get("signals"),
             "embedding_text": artifact.metadata.get("embedding_text"),
         },
+    }
+
+
+def _agent_flow_context(
+    traces: list[Trace],
+    trajectories: list[TraceTrajectory],
+    artifacts: list[HarnessArtifact],
+) -> dict[str, object]:
+    agents = sorted(
+        {
+            str(span.name)
+            for trace in traces
+            for span in trace.spans
+            if span.type in {"llm", "agent", "application"} and "agent" in span.name.lower()
+        }
+    )
+    tools = sorted({tool for trajectory in trajectories for tool in trajectory.tool_calls})
+    side_effects = sorted(
+        {
+            side_effect
+            for trajectory in trajectories
+            for side_effect in trajectory.side_effect_classes
+            if side_effect and side_effect != "none"
+        }
+    )
+    artifact_paths_by_type: dict[str, list[str]] = {}
+    for artifact in artifacts:
+        artifact_paths_by_type.setdefault(artifact.artifact_type, []).append(artifact.path)
+    common_sequences = []
+    for trace in traces[:10]:
+        sequence = [
+            {
+                "type": span.type,
+                "name": span.name,
+                "side_effect_class": span.side_effect_class,
+            }
+            for span in trace.spans[:8]
+        ]
+        common_sequences.append({"trace_id": trace.trace_id, "sequence": sequence})
+    return {
+        "observed_agents": agents,
+        "observed_tools": tools,
+        "observed_side_effect_classes": side_effects,
+        "artifact_paths_by_type": artifact_paths_by_type,
+        "sample_span_sequences": common_sequences,
     }

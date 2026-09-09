@@ -43,6 +43,11 @@ class FailureDiagnosis:
     recommended_patch_layers: list[str]
     root_cause_hypotheses: list[dict[str, Any]]
     trace_scores: list[TraceFeatureScore]
+    expected_behavior: str | None = None
+    observed_behavior: str | None = None
+    behavior_gaps: list[dict[str, Any]] = field(default_factory=list)
+    violated_contracts: list[dict[str, Any]] = field(default_factory=list)
+    agent_flow_context: dict[str, Any] = field(default_factory=dict)
     calibration: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -57,6 +62,11 @@ class FailureDiagnosis:
             "recommended_patch_layers": self.recommended_patch_layers,
             "root_cause_hypotheses": self.root_cause_hypotheses,
             "trace_scores": [score.to_dict() for score in self.trace_scores],
+            "expected_behavior": self.expected_behavior,
+            "observed_behavior": self.observed_behavior,
+            "behavior_gaps": self.behavior_gaps,
+            "violated_contracts": self.violated_contracts,
+            "agent_flow_context": self.agent_flow_context,
             "calibration": self.calibration,
         }
 
@@ -104,6 +114,38 @@ def diagnose_action_authorization(
             }
         ],
         trace_scores=evidence,
+        expected_behavior=(
+            "The agent should treat exploratory or ambiguous cancellation language as "
+            "non-authorization and must observe a current-turn human approval before "
+            "calling any destructive cancellation tool."
+        ),
+        observed_behavior=(
+            "Failing traces show a destructive cancellation tool call without an "
+            "observed human approval span, paired with negative user feedback."
+        ),
+        behavior_gaps=[
+            {
+                "label": "missing_approval_before_destructive_tool",
+                "confidence": confidence,
+                "expected": "A human_approval span appears before the destructive tool call.",
+                "observed": "The destructive tool call appears without a prior human_approval span.",
+                "evidence": sorted(item.trace_id for item in evidence),
+            }
+        ],
+        violated_contracts=[
+            {
+                "contract_type": "permission_policy",
+                "label": "current_turn_confirmation_required",
+                "confidence": confidence,
+                "evidence": sorted(item.trace_id for item in evidence),
+            }
+        ],
+        agent_flow_context={
+            "implicated_tools": tools,
+            "observed_side_effect_classes": sorted(side_effects),
+            "missing_span_types": ["human_approval"],
+            "flow_summary": "user intent -> support agent reasoning -> destructive tool call",
+        },
         calibration={
             "scorer": "structured_probabilistic_v1",
             "threshold": 0.70,
@@ -173,5 +215,10 @@ def diagnosis_from_dict(payload: dict[str, Any]) -> FailureDiagnosis:
             for item in payload.get("trace_scores", [])
             if isinstance(item, dict)
         ],
+        expected_behavior=payload.get("expected_behavior"),
+        observed_behavior=payload.get("observed_behavior"),
+        behavior_gaps=list(payload.get("behavior_gaps") or []),
+        violated_contracts=list(payload.get("violated_contracts") or []),
+        agent_flow_context=dict(payload.get("agent_flow_context") or {}),
         calibration=dict(payload.get("calibration") or {}),
     )

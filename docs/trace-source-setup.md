@@ -323,7 +323,7 @@ redaction:
   external_llm_allowed: true
 ```
 
-The issue report records judge provenance so reviewers can tell whether a diagnosis came from the local fallback, a recorded AI judge, or a live model judge.
+The judge compares what should have happened according to the codebase, agent flow, prompts, Skills, routing rules, tool contracts, context policy, and guardrails against what actually happened in traces. The issue report records expected-vs-actual behavior, behavior gaps, violated contracts, and judge provenance so reviewers can tell whether a diagnosis came from the local fallback, a recorded AI judge, or a live model judge.
 
 ## Common Problems
 

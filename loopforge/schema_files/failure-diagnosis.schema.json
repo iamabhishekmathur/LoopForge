@@ -56,6 +56,24 @@
       "type": "array",
       "items": {"type": "object"}
     },
+    "expected_behavior": {
+      "type": ["string", "null"]
+    },
+    "observed_behavior": {
+      "type": ["string", "null"]
+    },
+    "behavior_gaps": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "violated_contracts": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "agent_flow_context": {
+      "type": "object",
+      "additionalProperties": true
+    },
     "calibration": {
       "type": "object",
       "additionalProperties": true
