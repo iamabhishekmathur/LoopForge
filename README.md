@@ -310,13 +310,19 @@ python -m loopforge refinements list
 
 ## Simulation
 
-LoopForge includes a local simulation under [simulations/support-cancel-agent](simulations/support-cancel-agent). It models a flawed support agent harness, a LangSmith-style observability export, and the full LoopForge run from connector checks through PR artifact generation:
+LoopForge includes two local simulations. The compact [simulations/support-cancel-agent](simulations/support-cancel-agent) scenario models a flawed support agent harness, a LangSmith-style observability export, and the full LoopForge run from connector checks through PR artifact generation:
 
 ```bash
 python simulations/support-cancel-agent/run_simulation.py
 ```
 
-The generated `simulation-output.md` shows the exact outputs a new user should expect, including discovered harness artifacts, `ISSUE-0001`, `EVAL-0001`, `PATCH-0001`, a passing gate, and a dry-run PR artifact.
+The larger [simulations/acme-agent-platform](simulations/acme-agent-platform) scenario models a multi-agent support company with support, billing, and escalation agents, noisy production traces, validated evals, gates, and issue resolution planning:
+
+```bash
+python simulations/acme-agent-platform/run_simulation.py
+```
+
+Each generated `simulation-output.md` shows the exact outputs a new user should expect, including discovered harness artifacts, `ISSUE-0001`, `EVAL-0001`, `PATCH-0001`, a gate report, a resolution plan, and a dry-run PR artifact.
 
 Hosted trace sources can be configured with either a recorded fixture for local
 validation or a live HTTP endpoint:

@@ -1,0 +1,15 @@
+policy: context_assembly
+retrieval:
+  sources:
+    - cancellation_policy
+    - refund_policy
+    - account_state
+    - enterprise_contract_notes
+  max_chunks: 6
+  require_policy_timestamp: true
+  stale_policy_days: 30
+privacy:
+  exclude_from_customer_response:
+    - internal_risk_score
+    - fraud_signal
+    - churn_prediction

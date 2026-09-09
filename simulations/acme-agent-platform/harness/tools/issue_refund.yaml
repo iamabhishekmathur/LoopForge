@@ -1,0 +1,16 @@
+name: issue_refund
+description: Issue a refund or account credit after eligibility checks and required approval.
+side_effect_class: money_movement
+arguments:
+  account_id:
+    type: string
+    required: true
+  amount_usd:
+    type: number
+    required: true
+  reason:
+    type: string
+    required: true
+returns:
+  refund_id:
+    type: string

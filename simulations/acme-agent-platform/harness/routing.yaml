@@ -1,0 +1,25 @@
+policy: multi_agent_routing
+routes:
+  support_agent:
+    owns:
+      - subscription_questions
+      - cancellation_intent
+      - retention_offers
+    handoff_to:
+      billing_agent:
+        when:
+          - refund_requested
+          - invoice_dispute
+      escalation_agent:
+        when:
+          - legal_threat
+          - enterprise_churn_risk
+  billing_agent:
+    owns:
+      - refunds
+      - invoices
+      - credits
+  escalation_agent:
+    owns:
+      - external_escalation_messages
+      - executive_response

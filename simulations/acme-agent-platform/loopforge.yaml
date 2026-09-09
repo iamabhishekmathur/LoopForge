@@ -1,0 +1,41 @@
+version: 1
+project:
+  name: acme-agent-platform-simulation
+  framework: generic
+
+monitor:
+  enabled: true
+  schedule: "every 2 hours"
+  trace_window: "24 hours"
+  open_prs: false
+  autonomy_level: 1
+  max_prs_per_day: 0
+
+refinement:
+  enabled: true
+  cadence: "after_monitor_run"
+  default_scope: workflow
+  max_candidate_operations: 8
+
+traces:
+  retention_days: 30
+  redaction: local_preview_required
+  sources:
+    - id: acme-langsmith
+      type: langsmith
+      fixture_path: observability/langsmith/runs.json
+
+harness:
+  discovery:
+    include:
+      - harness/**
+      - agent/**
+    exclude:
+      - .loopforge/**
+      - observability/**
+
+gates:
+  require_human_review: true
+  require_replay: true
+  require_eval_validation: true
+  max_patch_lines: 100

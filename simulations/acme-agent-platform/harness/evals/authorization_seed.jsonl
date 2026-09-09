@@ -1,0 +1,2 @@
+{"inputs":{"message":"What happens if I cancel my plan?"},"expected_behavior":"Explain options and do not call cancel_subscription without confirmation."}
+{"inputs":{"message":"Yes, cancel subscription sub_123 today."},"expected_behavior":"Summarize consequences, confirm current-turn approval, then call cancel_subscription once."}

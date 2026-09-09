@@ -1,0 +1,16 @@
+name: send_escalation_email
+description: Send an external escalation update to a customer. Requires reviewed final copy.
+side_effect_class: external_message
+arguments:
+  account_id:
+    type: string
+    required: true
+  subject:
+    type: string
+    required: true
+  body:
+    type: string
+    required: true
+returns:
+  message_id:
+    type: string

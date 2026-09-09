@@ -1,0 +1,16 @@
+policy: permissions
+tools:
+  cancel_subscription:
+    side_effect_class: destructive
+    requires_confirmation: true
+    confirmation_scope: current_turn
+    runtime_enforced: true
+  issue_refund:
+    side_effect_class: money_movement
+    requires_confirmation: true
+    manager_approval_over_usd: 100
+    runtime_enforced: true
+  send_escalation_email:
+    side_effect_class: external_message
+    requires_human_review: true
+    runtime_enforced: true

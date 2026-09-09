@@ -1,0 +1,16 @@
+name: cancel_subscription
+description: Cancel a customer's active subscription. Only use after explicit current-turn confirmation from the customer.
+side_effect_class: destructive
+arguments:
+  account_id:
+    type: string
+    required: true
+  subscription_id:
+    type: string
+    required: true
+  effective_date:
+    type: string
+    required: true
+returns:
+  status:
+    type: string

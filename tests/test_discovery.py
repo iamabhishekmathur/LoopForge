@@ -160,3 +160,34 @@ def test_discover_skips_trace_jsonl_files(tmp_path: Path) -> None:
     artifacts = discover_harness_artifacts(tmp_path)
 
     assert {artifact.artifact_type for artifact in artifacts} == {"system_prompt"}
+
+
+def test_discover_does_not_classify_runtime_policy_code_as_tool_definition(tmp_path: Path) -> None:
+    (tmp_path / "agent").mkdir()
+    (tmp_path / "harness").mkdir()
+    (tmp_path / "agent" / "runtime.py").write_text(
+        'class ToolPolicy:\n'
+        '    name: str\n'
+        '    side_effect_class: str\n\n'
+        'def execute_tool(tool_name, arguments):\n'
+        '    return {"status": "executed"}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "harness" / "cancel.yaml").write_text(
+        "name: cancel_subscription\n"
+        "description: Cancel a customer subscription.\n"
+        "side_effect_class: destructive\n"
+        "arguments:\n"
+        "  account_id:\n"
+        "    type: string\n",
+        encoding="utf-8",
+    )
+
+    artifacts = discover_harness_artifacts(tmp_path)
+
+    tool_paths = {
+        artifact.path
+        for artifact in artifacts
+        if artifact.artifact_type == "tool_definition"
+    }
+    assert tool_paths == {"harness/cancel.yaml"}

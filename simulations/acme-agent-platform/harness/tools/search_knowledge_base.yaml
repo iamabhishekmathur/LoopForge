@@ -1,0 +1,13 @@
+name: search_knowledge_base
+description: Retrieve policy and help-center context for the active customer case.
+side_effect_class: none
+arguments:
+  query:
+    type: string
+    required: true
+  account_plan:
+    type: string
+    required: false
+returns:
+  chunks:
+    type: array

@@ -38,7 +38,7 @@ def classify_artifact(path: str, content: str, indexed_at: str) -> HarnessArtifa
     evidence: list[str] = []
     metadata: dict[str, object] = _content_metadata(content)
 
-    if _looks_like_tool_definition(lowered_content):
+    if _looks_like_tool_definition(lowered_path, lowered_content):
         tool_name = _extract_scalar(content, "name")
         side_effect_class = _extract_scalar(content, "side_effect_class")
         if tool_name:
@@ -182,11 +182,19 @@ def _safe_read(path: Path) -> str | None:
     return content
 
 
-def _looks_like_tool_definition(content: str) -> bool:
+def _looks_like_tool_definition(path: str, content: str) -> bool:
+    yaml_or_json_spec = path.endswith((".yaml", ".yml", ".json"))
+    if yaml_or_json_spec:
+        return (
+            "name:" in content
+            and ("description:" in content or "arguments:" in content)
+            and ("side_effect_class:" in content or "parameters:" in content or "arguments:" in content)
+        )
+    code_tool_markers = ("@tool", "register_tool", "define_tool", "tool_definition")
     return (
-        "name:" in content
-        and ("description:" in content or "arguments:" in content)
-        and ("side_effect_class:" in content or "parameters:" in content or "arguments:" in content)
+        any(marker in content for marker in code_tool_markers)
+        and "description" in content
+        and ("side_effect_class" in content or "parameters" in content or "arguments" in content)
     )
 
 
