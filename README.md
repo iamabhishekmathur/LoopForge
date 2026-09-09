@@ -238,6 +238,33 @@ loopforge pr --dry-run PATCH-0001
 
 The right first outcome is not automatic mutation. It is a trace-backed issue, a grounded harness patch, a drafted regression eval, gates, and a reviewable PR artifact.
 
+## AI Issue Judge
+
+LoopForge can identify issues with a pluggable judge. The default mode is local and offline, but teams can opt into recorded AI-judge fixtures for repeatable testing or a live OpenAI-compatible chat endpoint for model-based issue discovery.
+
+Recorded judge fixture:
+
+```yaml
+analysis:
+  issue_judge: json_file
+  issue_judge_path: observability/judges/issue-diagnosis.json
+```
+
+Live OpenAI-compatible judge:
+
+```yaml
+analysis:
+  issue_judge: openai_compatible
+  issue_judge_endpoint: https://api.openai.com/v1/chat/completions
+  issue_judge_model: gpt-4.1-mini
+  issue_judge_api_key_env: OPENAI_API_KEY
+
+redaction:
+  external_llm_allowed: true
+```
+
+Live judging stays off unless `redaction.external_llm_allowed` is explicitly true. The judge receives compact traces, trajectories, harness-artifact summaries, and any local fallback diagnosis. It must either return a confidence-bearing diagnosis or abstain. Patch generation and PR opening remain gated separately.
+
 ## Fast Adoption Path
 
 The first 30 minutes should prove LoopForge can inspect the repo, read traces, and draft evidence-backed artifacts without changing production behavior:

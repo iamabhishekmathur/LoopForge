@@ -92,6 +92,10 @@ def _diagnosis_lines(diagnosis: object) -> str:
     lines = []
     if isinstance(calibration, dict):
         lines.append(f"- Scorer: `{calibration.get('scorer', 'unknown')}`")
+        if calibration.get("judge"):
+            lines.append(f"- Judge: `{calibration.get('judge')}`")
+        if calibration.get("model"):
+            lines.append(f"- Judge model: `{calibration.get('model')}`")
         lines.append(f"- Threshold: `{calibration.get('threshold', 'unknown')}`")
         lines.append(
             f"- Observable from traces: `{calibration.get('observable_from_traces', False)}`"

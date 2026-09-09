@@ -22,6 +22,7 @@ LOCAL_DIRS = [
     "patches",
     "prs",
     "reports",
+    "resolutions",
     "rollbacks",
     "setup",
     "traces",

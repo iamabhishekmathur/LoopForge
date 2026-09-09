@@ -8,6 +8,7 @@ from pathlib import Path
 
 from loopforge.adapters.registry import read_traces
 from loopforge.analysis.judge import write_diagnosis
+from loopforge.config import configured_issue_judge
 from loopforge.db import Store
 from loopforge.discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from loopforge.discovery.scanner import discover_harness_artifacts, write_harness_index
@@ -63,7 +64,7 @@ def run_shadow_pipeline(
             store.upsert_trace(trace_dict)
             store.upsert_trajectory(trajectory.to_dict())
 
-        issues = mine_issues(traces, trajectories, artifacts)
+        issues = mine_issues(traces, trajectories, artifacts, judge=configured_issue_judge(root))
         reports = []
         eval_count = 0
         validation_count = 0

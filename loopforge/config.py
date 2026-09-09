@@ -19,6 +19,7 @@ DEFAULT_LOCAL_DIRS = [
     "patches",
     "prs",
     "reports",
+    "resolutions",
     "rollbacks",
     "setup",
     "traces",
@@ -74,6 +75,10 @@ analysis:
   max_model_calls_per_scan: 250
   max_estimated_cost_usd_per_scan: 10
   analysis_level: standard
+  issue_judge: local
+  issue_judge_endpoint: https://api.openai.com/v1/chat/completions
+  issue_judge_model: gpt-4.1-mini
+  issue_judge_api_key_env: OPENAI_API_KEY
 
 connect:
   auto_detect_trace_source: true
@@ -333,6 +338,41 @@ def configured_refiner_target_scope(root: Path) -> str:
     return value if value in {"shadow", "workflow", "project", "org"} else "workflow"
 
 
+def configured_external_llm_allowed(root: Path) -> bool:
+    return str(_first_scalar_config_value(root, "external_llm_allowed")).lower() == "true"
+
+
+def configured_issue_judge(root: Path):
+    from loopforge.analysis.judge import JsonFileJudge, LocalFallbackJudge, OpenAICompatibleJudge
+
+    mode = (_first_scalar_config_value(root, "issue_judge") or "local").strip().lower()
+    if mode in {"local", "fallback", "structured"}:
+        return LocalFallbackJudge()
+    if mode in {"json", "json_file", "recorded"}:
+        path_value = _first_scalar_config_value(root, "issue_judge_path")
+        if not path_value:
+            raise ValueError("analysis.issue_judge_path is required when issue_judge is json_file")
+        path = Path(path_value)
+        return JsonFileJudge(path if path.is_absolute() else root / path)
+    if mode in {"openai", "openai_compatible", "llm"}:
+        if not configured_external_llm_allowed(root):
+            raise ValueError(
+                "redaction.external_llm_allowed must be true before using a live issue judge"
+            )
+        timeout = _float_config_value(root, "issue_judge_timeout_seconds", 30.0)
+        max_chars = int(_float_config_value(root, "issue_judge_max_payload_chars", 60000.0))
+        return OpenAICompatibleJudge(
+            endpoint=_first_scalar_config_value(root, "issue_judge_endpoint")
+            or "https://api.openai.com/v1/chat/completions",
+            model=_first_scalar_config_value(root, "issue_judge_model") or "gpt-4.1-mini",
+            api_key_env=_first_scalar_config_value(root, "issue_judge_api_key_env")
+            or "OPENAI_API_KEY",
+            timeout_seconds=timeout,
+            max_payload_chars=max_chars,
+        )
+    raise ValueError(f"unsupported analysis.issue_judge mode: {mode}")
+
+
 def _first_scalar_config_value(root: Path, key: str) -> str | None:
     config_path = root / PROJECT_CONFIG
     if not config_path.exists():
@@ -345,3 +385,13 @@ def _first_scalar_config_value(root: Path, key: str) -> str | None:
             value = stripped.split(":", 1)[1].strip()
             return value.strip("\"'")
     return None
+
+
+def _float_config_value(root: Path, key: str, default: float) -> float:
+    value = _first_scalar_config_value(root, key)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default

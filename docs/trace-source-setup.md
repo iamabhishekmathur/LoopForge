@@ -300,6 +300,31 @@ Healthy first run:
 - `issues resolution-plan ISSUE_ID` explains the likely root cause, candidate actions, and any evidence still needed before release.
 - `.loopforge/connectors/SOURCE_ID-sync.json` is written.
 
+## AI Issue Judge
+
+Trace ingestion and issue judging are separate. Start with the local judge or a recorded judge fixture when qualifying LoopForge:
+
+```yaml
+analysis:
+  issue_judge: json_file
+  issue_judge_path: observability/judges/issue-diagnosis.json
+```
+
+For live model judging, use an OpenAI-compatible chat endpoint and explicitly allow external LLM analysis:
+
+```yaml
+analysis:
+  issue_judge: openai_compatible
+  issue_judge_endpoint: https://api.openai.com/v1/chat/completions
+  issue_judge_model: gpt-4.1-mini
+  issue_judge_api_key_env: OPENAI_API_KEY
+
+redaction:
+  external_llm_allowed: true
+```
+
+The issue report records judge provenance so reviewers can tell whether a diagnosis came from the local fallback, a recorded AI judge, or a live model judge.
+
 ## Common Problems
 
 ### `connectors doctor` says `needs_credentials`

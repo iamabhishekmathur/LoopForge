@@ -17,6 +17,10 @@ refinement:
   default_scope: workflow
   max_candidate_operations: 8
 
+analysis:
+  issue_judge: json_file
+  issue_judge_path: observability/judges/acme-issue-diagnosis.json
+
 traces:
   retention_days: 30
   redaction: local_preview_required
