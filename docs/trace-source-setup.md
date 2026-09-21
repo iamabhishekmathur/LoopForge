@@ -256,6 +256,8 @@ LoopForge can learn more when traces include:
 | Model and environment metadata | Helps segment regressions by launch, version, or environment |
 | Runtime manifest ID | Grounds the trace in the harness that actually executed |
 
+For hypothesis judging, the most important fields are the initial user input, the observed route or tool calls, the final assistant output, guardrail verdicts when present, and enough tool result context to judge whether the response plausibly followed from the execution.
+
 Minimum useful trace shape:
 
 ```json
@@ -286,6 +288,8 @@ Run:
 loopforge connectors doctor
 loopforge readiness
 loopforge monitor --once --last 24h
+loopforge judge run
+loopforge judge list
 loopforge queue run-next
 loopforge issues list
 loopforge issues resolution-plan ISSUE-0001
@@ -296,6 +300,7 @@ Healthy first run:
 - `connectors doctor` reports at least one `ready` source.
 - `readiness` passes.
 - `monitor --once` reports nonzero `traces`.
+- `judge list` either shows hypothesis findings or confirms the traces are sufficiently judgeable.
 - If failures recur, `issues list` shows at least one issue.
 - `issues resolution-plan ISSUE_ID` explains the likely root cause, candidate actions, and any evidence still needed before release.
 - `.loopforge/connectors/SOURCE_ID-sync.json` is written.

@@ -30,6 +30,16 @@ create table if not exists issues (
   payload_json text not null
 );
 
+create table if not exists hypothesis_findings (
+  finding_id text primary key,
+  trace_id text not null,
+  finding_type text not null,
+  status text not null,
+  confidence real not null,
+  payload_json text not null,
+  foreign key(trace_id) references traces(trace_id)
+);
+
 create table if not exists resolution_plans (
   plan_id text primary key,
   issue_id text not null,
@@ -243,6 +253,31 @@ class Store:
         )
         self.connection.commit()
 
+    def upsert_hypothesis_finding(self, finding: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into hypothesis_findings(
+              finding_id, trace_id, finding_type, status, confidence, payload_json
+            )
+            values (?, ?, ?, ?, ?, ?)
+            on conflict(finding_id) do update set
+              trace_id=excluded.trace_id,
+              finding_type=excluded.finding_type,
+              status=excluded.status,
+              confidence=excluded.confidence,
+              payload_json=excluded.payload_json
+            """,
+            (
+                finding["finding_id"],
+                finding["trace_id"],
+                finding["finding_type"],
+                finding["status"],
+                finding["confidence"],
+                json.dumps(finding, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
     def upsert_harness_artifact(self, artifact: dict[str, Any]) -> None:
         self.connection.execute(
             """
@@ -291,6 +326,31 @@ class Store:
             "select payload_json from issues order by issue_id"
         ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
+
+    def list_traces(self, limit: int | None = None) -> list[dict[str, Any]]:
+        query = "select payload_json from traces order by started_at desc"
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            query += " limit ?"
+            params = (limit,)
+        rows = self.connection.execute(query, params).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def list_hypothesis_findings(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            select payload_json from hypothesis_findings
+            order by confidence desc, finding_id
+            """
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def get_hypothesis_finding(self, finding_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from hypothesis_findings where finding_id = ?",
+            (finding_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
 
     def get_issue(self, issue_id: str) -> dict[str, Any] | None:
         row = self.connection.execute(

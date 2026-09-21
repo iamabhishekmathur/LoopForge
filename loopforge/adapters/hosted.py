@@ -116,11 +116,13 @@ class HostedTraceAdapter(TraceAdapter):
             return body
         if self.source_type != "langsmith":
             return {}
+        session_ids = self._langsmith_session_ids()
+        project_name = None if session_ids else self.settings.get("project_name") or self.settings.get("project")
         body = {
             key: value
             for key, value in {
-                "project_name": self.settings.get("project_name") or self.settings.get("project"),
-                "project_id": self.settings.get("project_id"),
+                "session": session_ids,
+                "project_name": project_name,
                 "limit": _int_or_none(self.settings.get("limit")),
                 "start_time_after": self.settings.get("since") or self.since,
                 "end_time_before": self.settings.get("to"),
@@ -130,6 +132,38 @@ class HostedTraceAdapter(TraceAdapter):
             if value is not None
         }
         return body
+
+    def _langsmith_session_ids(self) -> list[str] | None:
+        project_id = self.settings.get("project_id")
+        if project_id:
+            return [project_id]
+        project_name = self.settings.get("project_name") or self.settings.get("project")
+        if not project_name:
+            return None
+        if not self.api_key:
+            return None
+        endpoint = _append_query(
+            self.settings.get("base_url", "https://api.smith.langchain.com").rstrip("/") + "/sessions",
+            {"limit": "1", "name": project_name, "include_stats": "false"},
+        )
+        request = Request(
+            endpoint,
+            headers={
+                "Accept": "application/json",
+                **_auth_headers(self.source_type, self.api_key, self.settings),
+            },
+            method="GET",
+        )
+        try:
+            with urlopen(request, timeout=float(self.settings.get("timeout_seconds", "30"))) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            raise ValueError(f"{self.source_id}: failed to resolve LangSmith project: {exc}") from exc
+        records = payload if isinstance(payload, list) else [payload]
+        for record in records:
+            if isinstance(record, dict) and record.get("id"):
+                return [str(record["id"])]
+        raise ValueError(f"{self.source_id}: LangSmith project {project_name!r} not found")
 
     def _query_params(self, cursor_override: str | None = None) -> dict[str, str]:
         cursor = cursor_override or self.settings.get("cursor") or self.cursor
@@ -525,6 +559,8 @@ def _auth_headers(source_type: str, api_key: str | None, settings: dict[str, str
     if source_type == "langfuse" and settings.get("secret_key"):
         token = base64.b64encode(f"{api_key}:{settings['secret_key']}".encode("utf-8")).decode("ascii")
         return {"Authorization": f"Basic {token}"}
+    if source_type == "langsmith":
+        return {"x-api-key": api_key}
     return {"Authorization": f"Bearer {api_key}"}
 
 

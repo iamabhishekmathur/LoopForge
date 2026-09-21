@@ -21,6 +21,7 @@ from .discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
 from .issues.report import issue_report_markdown, write_issue_report
 from .issues.resolution import build_resolution_plan, resolution_plan_markdown, write_resolution_plan
+from .judging.runner import run_hypothesis_judging
 from .learning.report import learned_report_markdown, write_learned_report
 from .models.eval import EvalExample, EvaluatorDefinition, EvaluatorValidationRecord
 from .models.confirmation import ConfirmationReport
@@ -136,6 +137,14 @@ def build_parser() -> argparse.ArgumentParser:
     monitor.add_argument("--path", default=None, help="Override configured trace source path.")
     monitor.add_argument("--list-runs", action="store_true", help="List persisted monitor runs.")
     monitor.add_argument("--show-run", default=None, help="Show one persisted monitor run.")
+
+    judge = subparsers.add_parser("judge", help="Run hypothesis judges over stored traces.")
+    judge_subparsers = judge.add_subparsers(dest="judge_command", required=True)
+    judge_run = judge_subparsers.add_parser("run", help="Run hypothesis judging.")
+    judge_run.add_argument("--limit", type=int, default=None, help="Limit traces judged.")
+    judge_subparsers.add_parser("list", help="List hypothesis findings.")
+    judge_show = judge_subparsers.add_parser("show", help="Show one hypothesis finding.")
+    judge_show.add_argument("finding_id")
 
     queue = subparsers.add_parser("queue", help="Inspect or run async refinement queue items.")
     queue_subparsers = queue.add_subparsers(dest="queue_command", required=True)
@@ -698,6 +707,92 @@ def command_monitor_show_run(root: Path, run_id: str) -> int:
 
     print(_monitor_run_detail(MonitorRun.from_dict(payload)))
     return 0
+
+
+def command_judge_run(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    result = run_hypothesis_judging(root, limit=args.limit)
+    print("Hypothesis judging complete")
+    print(f"  traces: {result.trace_count}")
+    print(f"  behavior_artifacts: {result.behavior_artifact_count}")
+    print(f"  findings: {result.finding_count}")
+    return 0
+
+
+def command_judge_list(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        findings = store.list_hypothesis_findings()
+    finally:
+        store.close()
+    if not findings:
+        print("No hypothesis findings found.")
+        return 0
+    for finding in findings:
+        print(
+            f"{finding['finding_id']}  {finding['severity']:7}  "
+            f"{finding['confidence']:.2f}  {finding['finding_type']}  {finding['title']}"
+        )
+    return 0
+
+
+def command_judge_show(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        finding = store.get_hypothesis_finding(args.finding_id)
+    finally:
+        store.close()
+    if finding is None:
+        print(f"error: finding not found: {args.finding_id}", file=sys.stderr)
+        return 1
+    print(_hypothesis_markdown(finding))
+    return 0
+
+
+def _hypothesis_markdown(finding: dict[str, object]) -> str:
+    lines = [
+        f"# {finding['finding_id']}",
+        "",
+        f"Type: `{finding['finding_type']}`",
+        f"Severity: `{finding['severity']}`",
+        f"Confidence: `{finding['confidence']}`",
+        f"Trace: `{finding['trace_id']}`",
+        "",
+        "## Hypothesis",
+        "",
+        str(finding["hypothesis"]),
+        "",
+        "## Missing Evidence",
+        "",
+    ]
+    missing = finding.get("missing_evidence") or []
+    if isinstance(missing, list) and missing:
+        lines.extend(f"- `{item}`" for item in missing)
+    else:
+        lines.append("- None")
+    lines.extend(
+        [
+            "",
+            "## Recommended Next Action",
+            "",
+            str(finding["recommended_next_action"]),
+            "",
+            "## Trace Evidence",
+            "",
+            "```json",
+            json.dumps(finding.get("supporting_trace_evidence") or [], indent=2, sort_keys=True),
+            "```",
+            "",
+            "## Codebase Evidence",
+            "",
+            "```json",
+            json.dumps(finding.get("supporting_codebase_evidence") or [], indent=2, sort_keys=True),
+            "```",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def command_queue_list(_: argparse.Namespace) -> int:
@@ -1765,6 +1860,12 @@ def run(argv: list[str] | None = None) -> int:
         return command_shadow(args)
     if args.command == "monitor":
         return command_monitor(args)
+    if args.command == "judge" and args.judge_command == "run":
+        return command_judge_run(args)
+    if args.command == "judge" and args.judge_command == "list":
+        return command_judge_list(args)
+    if args.command == "judge" and args.judge_command == "show":
+        return command_judge_show(args)
     if args.command == "queue" and args.queue_command == "list":
         return command_queue_list(args)
     if args.command == "queue" and args.queue_command == "run-next":

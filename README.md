@@ -267,6 +267,21 @@ redaction:
 
 Live judging stays off unless `redaction.external_llm_allowed` is explicitly true. The judge receives compact traces, trajectories, harness-artifact summaries, agent-flow context, and any local fallback diagnosis. It must either return a confidence-bearing diagnosis or abstain. Patch generation and PR opening remain gated separately.
 
+## Hypothesis Judge
+
+Most teams do not have ground-truth labels for production agent traces. LoopForge therefore also includes a hypothesis-first judge that runs after traces and harness artifacts have been ingested:
+
+```bash
+loopforge shadow --last 24h
+loopforge judge run
+loopforge judge list
+loopforge judge show HF-...
+```
+
+The hypothesis judge builds an observed-agent-run view from each trace, builds a behavior map from indexed prompts, tools, Skills, routing policy, context policy, and guardrails, then plans judge tasks such as intent alignment, tool selection, clarification need, final-answer faithfulness, and guardrail adherence.
+
+Findings are intentionally phrased as hypotheses, not ground-truth verdicts. If a trace lacks the initial user input, selected route/tool, guardrail verdict, or final assistant response, LoopForge creates an `insufficient_trace_coverage` finding instead of pretending it can judge behavior. This is the expected first result for partial telemetry such as isolated downstream execution spans.
+
 ## Fast Adoption Path
 
 The first 30 minutes should prove LoopForge can inspect the repo, read traces, and draft evidence-backed artifacts without changing production behavior:

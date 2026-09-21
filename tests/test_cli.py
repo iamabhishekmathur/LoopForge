@@ -98,6 +98,7 @@ def test_help_includes_discover_and_shadow(tmp_path: Path) -> None:
     assert "connectors" in result.stdout
     assert "shadow" in result.stdout
     assert "monitor" in result.stdout
+    assert "judge" in result.stdout
     assert "queue" in result.stdout
     assert "learned" in result.stdout
     assert "redact" in result.stdout
