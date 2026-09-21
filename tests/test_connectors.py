@@ -141,9 +141,50 @@ def test_hosted_adapter_normalizes_langsmith_fixture() -> None:
 
     assert traces[0].trace_id == "prod:ls-run-1"
     assert traces[0].source_trace_id == "ls-run-1"
-    assert traces[0].spans[0].type == "tool_call"
-    assert traces[0].spans[0].name == "cancel_subscription"
-    assert traces[0].spans[0].side_effect_class == "destructive"
+    assert [span.name for span in traces[0].spans] == ["Support agent", "cancel_subscription"]
+    assert traces[0].spans[0].type == "router"
+    assert traces[0].spans[1].type == "tool_call"
+    assert traces[0].spans[1].parent_span_id == "ls-run-1"
+    assert traces[0].spans[1].side_effect_class == "destructive"
+
+
+def test_langsmith_flat_runs_are_grouped_by_trace_id() -> None:
+    payload = {
+        "runs": [
+            {
+                "id": "root-run",
+                "trace_id": "trace-1",
+                "name": "Kaiya agent",
+                "run_type": "chain",
+                "start_time": "2026-01-01T00:00:00Z",
+                "end_time": "2026-01-01T00:00:05Z",
+                "inputs": {"user_message": "why did orders cancel in June?"},
+                "outputs": {"answer": "Trade-in was the top reason."},
+            },
+            {
+                "id": "sql-run",
+                "trace_id": "trace-1",
+                "parent_run_id": "root-run",
+                "name": "sql_execution",
+                "run_type": "chain",
+                "start_time": "2026-01-01T00:00:02Z",
+                "end_time": "2026-01-01T00:00:04Z",
+                "inputs": {"db_query": "select cancellation_reason, count(*) from orders group by 1"},
+                "outputs": {"rows": [["Trade-in", 2342]]},
+            },
+        ]
+    }
+
+    traces = normalize_provider_payload("langsmith", payload, "prod")
+
+    assert len(traces) == 1
+    assert traces[0].trace_id == "prod:trace-1"
+    assert traces[0].source_trace_id == "trace-1"
+    assert traces[0].inputs == {"user_message": "why did orders cancel in June?"}
+    assert traces[0].outputs == {"answer": "Trade-in was the top reason."}
+    assert [span.span_id for span in traces[0].spans] == ["root-run", "sql-run"]
+    assert traces[0].spans[1].parent_span_id == "root-run"
+    assert traces[0].spans[1].input == {"db_query": "select cancellation_reason, count(*) from orders group by 1"}
 
 
 def test_hosted_adapter_preserves_human_approval_spans() -> None:
@@ -167,7 +208,8 @@ def test_hosted_adapter_preserves_human_approval_spans() -> None:
 
     traces = normalize_provider_payload("langsmith", payload, "prod")
 
-    assert traces[0].spans[0].type == "human_approval"
+    assert [span.type for span in traces[0].spans] == ["application", "human_approval"]
+    assert traces[0].spans[1].parent_span_id == "ls-run-approval"
 
 
 def test_hosted_adapter_endpoint_includes_incremental_state() -> None:
@@ -419,6 +461,7 @@ def test_langsmith_pagination_sends_next_cursor_in_post_body(monkeypatch) -> Non
             "project": "support-agent",
             "pagination": "cursor",
             "max_pages": "2",
+            "hydrate_traces": "false",
         },
     )
 
@@ -429,6 +472,84 @@ def test_langsmith_pagination_sends_next_cursor_in_post_body(monkeypatch) -> Non
         {"project_name": "support-agent", "cursor": "cursor-2"},
     ]
     assert [trace.source_trace_id for trace in traces] == ["run-1", "run-2"]
+
+
+def test_langsmith_adapter_hydrates_runs_by_trace_id(monkeypatch) -> None:
+    bodies = []
+    pages = [
+        {
+            "runs": [
+                {
+                    "id": "root-run",
+                    "trace_id": "trace-1",
+                    "name": "agent",
+                    "run_type": "chain",
+                    "start_time": "2026-01-01T00:00:00Z",
+                    "inputs": {"user_message": "cancel"},
+                }
+            ]
+        },
+        {
+            "runs": [
+                {
+                    "id": "root-run",
+                    "trace_id": "trace-1",
+                    "name": "agent",
+                    "run_type": "chain",
+                    "start_time": "2026-01-01T00:00:00Z",
+                    "inputs": {"user_message": "cancel"},
+                    "outputs": {"answer": "done"},
+                },
+                {
+                    "id": "tool-run",
+                    "trace_id": "trace-1",
+                    "parent_run_id": "root-run",
+                    "name": "cancel_subscription",
+                    "run_type": "tool",
+                    "start_time": "2026-01-01T00:00:01Z",
+                },
+            ]
+        },
+    ]
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self.payload = payload
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        bodies.append(json.loads(request.data.decode("utf-8")))
+        return FakeResponse(pages[len(bodies) - 1])
+
+    monkeypatch.setattr("loopforge.adapters.hosted.urlopen", fake_urlopen)
+    adapter = HostedTraceAdapter(
+        "prod",
+        "langsmith",
+        {
+            "base_url": "https://api.example.test",
+            "project": "support-agent",
+            "limit": "1",
+        },
+    )
+
+    traces = adapter.read(REPO_ROOT)
+
+    assert bodies == [
+        {"project_name": "support-agent", "limit": 1},
+        {"project_name": "support-agent", "limit": 100, "trace_id": "trace-1"},
+    ]
+    assert len(traces) == 1
+    assert traces[0].outputs == {"answer": "done"}
+    assert [span.span_id for span in traces[0].spans] == ["root-run", "tool-run"]
+    assert traces[0].spans[1].parent_span_id == "root-run"
 
 
 def test_read_traces_can_ingest_hosted_fixture_source(tmp_path: Path) -> None:

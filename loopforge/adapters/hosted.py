@@ -53,7 +53,7 @@ class HostedTraceAdapter(TraceAdapter):
         endpoint = self._endpoint()
         payload = self._fetch_page(endpoint)
         if not self._should_paginate():
-            return payload
+            return self._hydrate_langsmith_payload(payload)
 
         combined = payload
         seen_cursors: set[str] = set()
@@ -66,7 +66,7 @@ class HostedTraceAdapter(TraceAdapter):
             combined = _merge_payloads(combined, page)
             next_cursor = _next_cursor(page)
             page_count += 1
-        return combined
+        return self._hydrate_langsmith_payload(combined)
 
     def _fetch_page(self, endpoint: str, cursor_override: str | None = None) -> Any:
         headers = {"Accept": "application/json"}
@@ -82,6 +82,44 @@ class HostedTraceAdapter(TraceAdapter):
                 return json.loads(response.read().decode("utf-8"))
         except Exception as exc:
             raise ValueError(f"{self.source_id}: failed to fetch hosted traces: {exc}") from exc
+
+    def _fetch_post_body(self, endpoint: str, body: dict[str, Any]) -> Any:
+        headers = {"Accept": "application/json"}
+        headers.update(_auth_headers(self.source_type, self.api_key, self.settings))
+        headers["Content-Type"] = "application/json"
+        request = Request(
+            endpoint,
+            data=json.dumps(body).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=float(self.settings.get("timeout_seconds", "30"))) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            raise ValueError(f"{self.source_id}: failed to fetch hosted traces: {exc}") from exc
+
+    def _hydrate_langsmith_payload(self, payload: Any) -> Any:
+        if self.source_type != "langsmith":
+            return payload
+        if self.settings.get("hydrate_traces", "true").lower() == "false":
+            return payload
+        records = _extract_records(payload)
+        trace_ids = _langsmith_trace_ids(records)
+        if not trace_ids:
+            return payload
+
+        max_traces = int(self.settings.get("hydrate_max_traces") or min(len(trace_ids), 20))
+        run_limit = _int_or_none(self.settings.get("hydrate_run_limit")) or 100
+        combined = payload
+        endpoint = self._endpoint()
+        base_body = self._request_body() or {}
+        base_body.pop("cursor", None)
+        base_body["limit"] = run_limit
+        for trace_id in trace_ids[:max_traces]:
+            body = {**base_body, "trace_id": trace_id}
+            combined = _merge_payloads(combined, self._fetch_post_body(endpoint, body))
+        return combined
 
     def _endpoint(self, cursor_override: str | None = None) -> str:
         if self.settings.get("url"):
@@ -215,6 +253,8 @@ def normalize_provider_payload(
     if source_type in {"opentelemetry", "openinference"} and _is_otel_payload(payload):
         return _normalize_otel_payload(source_type, payload, source_id)
     records = _extract_records(payload)
+    if source_type == "langsmith" and _is_langsmith_runs_payload(records):
+        return _normalize_langsmith_runs(records, source_id)
     traces = []
     for index, record in enumerate(records, start=1):
         if not isinstance(record, dict):
@@ -231,6 +271,145 @@ def normalize_provider_payload(
             continue
         traces.append(_normalize_record(source_type, source_id, index, record))
     return traces
+
+
+def _normalize_langsmith_runs(records: list[Any], source_id: str) -> list[Trace]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    indexes_by_group: dict[str, dict[str, int]] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for run in _flatten_langsmith_run(record):
+            run_id = _langsmith_run_id(run)
+            trace_id = _langsmith_trace_id(run)
+            grouped.setdefault(trace_id, [])
+            indexes_by_group.setdefault(trace_id, {})
+            if run_id in indexes_by_group[trace_id]:
+                existing_index = indexes_by_group[trace_id][run_id]
+                grouped[trace_id][existing_index] = _merge_langsmith_run(grouped[trace_id][existing_index], run)
+                continue
+            indexes_by_group[trace_id][run_id] = len(grouped[trace_id])
+            grouped[trace_id].append(run)
+
+    traces: list[Trace] = []
+    for trace_id, runs in grouped.items():
+        sorted_runs = sorted(runs, key=_langsmith_sort_key)
+        root_run = _langsmith_root_run(trace_id, sorted_runs)
+        spans = [
+            _normalize_langsmith_span(trace_id, index, run)
+            for index, run in enumerate(sorted_runs, start=1)
+        ]
+        trace_payload = {
+            "schema_version": "1",
+            "trace_id": f"{source_id}:{trace_id}",
+            "source_trace_id": trace_id,
+            "session_id": root_run.get("session_id"),
+            "started_at": _started_at(root_run),
+            "ended_at": _ended_at(root_run) or _ended_at(sorted_runs[-1]),
+            "runtime_manifest_id": root_run.get("runtime_manifest_id"),
+            "replay_mode": "none",
+            "inputs": _object(root_run.get("inputs") or root_run.get("input")),
+            "outputs": _object(root_run.get("outputs") or root_run.get("output")),
+            "feedback": _feedback(root_run),
+            "spans": spans,
+            "metadata": {
+                "source_id": source_id,
+                "source_type": "langsmith",
+                "record_shape": "runs_query",
+                "run_count": len(sorted_runs),
+                "raw_keys": sorted({key for run in sorted_runs for key in run.keys()}),
+            },
+        }
+        traces.append(Trace.from_dict(trace_payload))
+    return traces
+
+
+def _merge_langsmith_run(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(left)
+    for key, value in right.items():
+        if value not in (None, "", [], {}):
+            merged[key] = value
+    return merged
+
+
+def _flatten_langsmith_run(
+    run: dict[str, Any],
+    parent_run_id: str | None = None,
+    trace_id: str | None = None,
+) -> list[dict[str, Any]]:
+    current = dict(run)
+    current_id = _langsmith_run_id(current)
+    inherited_trace_id = trace_id or current.get("trace_id") or current.get("traceId") or current_id
+    current.setdefault("trace_id", inherited_trace_id)
+    if parent_run_id and not (current.get("parent_run_id") or current.get("parent_id") or current.get("parent_span_id")):
+        current["parent_run_id"] = parent_run_id
+
+    flattened = [current]
+    for child in current.get("child_runs") or []:
+        if isinstance(child, dict):
+            flattened.extend(_flatten_langsmith_run(child, current_id, str(inherited_trace_id)))
+    return flattened
+
+
+def _normalize_langsmith_span(source_trace_id: str, index: int, run: dict[str, Any]) -> dict[str, Any]:
+    raw_type = run.get("run_type") or run.get("type") or run.get("kind")
+    return {
+        "span_id": _langsmith_run_id(run),
+        "parent_span_id": _langsmith_parent_run_id(run),
+        "type": _span_type(str(raw_type or "application")),
+        "name": str(run.get("name") or "langsmith_run"),
+        "input": _object(run.get("inputs") or run.get("input")),
+        "output": _object(run.get("outputs") or run.get("output")),
+        "error": run.get("error") or run.get("exception"),
+        "side_effect_class": run.get("side_effect_class") or _metadata_value(run, "side_effect_class"),
+        "started_at": _started_at(run),
+        "ended_at": _ended_at(run),
+        "metadata": {
+            "source_type": "langsmith",
+            "source_trace_id": source_trace_id,
+            "raw_type": raw_type,
+            "status": run.get("status"),
+            "dotted_order": run.get("dotted_order"),
+            "execution_order": run.get("execution_order"),
+            "child_run_ids": run.get("child_run_ids"),
+            "direct_child_run_ids": run.get("direct_child_run_ids"),
+        },
+    }
+
+
+def _langsmith_root_run(trace_id: str, runs: list[dict[str, Any]]) -> dict[str, Any]:
+    for run in runs:
+        if _langsmith_run_id(run) == trace_id:
+            return run
+    for run in runs:
+        if not _langsmith_parent_run_id(run):
+            return run
+    return runs[0]
+
+
+def _langsmith_run_id(run: dict[str, Any]) -> str:
+    return str(run.get("id") or run.get("run_id") or run.get("span_id") or run.get("trace_id") or "unknown")
+
+
+def _langsmith_trace_id(run: dict[str, Any]) -> str:
+    return str(run.get("trace_id") or run.get("traceId") or _langsmith_run_id(run))
+
+
+def _langsmith_parent_run_id(run: dict[str, Any]) -> str | None:
+    parent_ids = run.get("parent_run_ids")
+    if isinstance(parent_ids, list) and parent_ids:
+        return str(parent_ids[-1])
+    parent_id = run.get("parent_run_id") or run.get("parent_id") or run.get("parent_span_id")
+    return str(parent_id) if parent_id else None
+
+
+def _langsmith_sort_key(run: dict[str, Any]) -> tuple[str, int, str]:
+    execution_order = run.get("execution_order")
+    try:
+        order = int(execution_order)
+    except (TypeError, ValueError):
+        order = 0
+    return (str(run.get("dotted_order") or ""), order, _started_at(run))
 
 
 def _normalize_record(
@@ -481,6 +660,36 @@ def _extract_records(payload: Any) -> list[Any]:
         if isinstance(value, list):
             return value
     return [payload]
+
+
+def _is_langsmith_runs_payload(records: list[Any]) -> bool:
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if record.get("schema_version") == "1":
+            continue
+        if record.get("run_type") or record.get("child_runs") or record.get("parent_run_id"):
+            return True
+        if record.get("trace_id") and (record.get("id") or record.get("name")):
+            return True
+    return False
+
+
+def _langsmith_trace_ids(records: list[Any]) -> list[str]:
+    trace_ids: list[str] = []
+    seen: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        trace_id = record.get("trace_id") or record.get("traceId") or record.get("id") or record.get("run_id")
+        if not trace_id:
+            continue
+        trace_id = str(trace_id)
+        if trace_id in seen:
+            continue
+        seen.add(trace_id)
+        trace_ids.append(trace_id)
+    return trace_ids
 
 
 def _flatten_otel_spans(payload: dict[str, Any]) -> list[dict[str, Any]]:
