@@ -282,6 +282,27 @@ The hypothesis judge builds an observed-agent-run view from each trace, builds a
 
 Findings are intentionally phrased as hypotheses, not ground-truth verdicts. If a trace lacks the initial user input, selected route/tool, guardrail verdict, or final assistant response, LoopForge creates an `insufficient_trace_coverage` finding instead of pretending it can judge behavior. This is the expected first result for partial telemetry such as isolated downstream execution spans.
 
+For stronger trace-level review, configure a recorded or live hypothesis judge:
+
+```yaml
+analysis:
+  hypothesis_judge: json_file
+  hypothesis_judge_path: observability/judges/hypothesis-findings.json
+```
+
+```yaml
+analysis:
+  hypothesis_judge: openai_compatible
+  hypothesis_judge_endpoint: https://api.openai.com/v1/chat/completions
+  hypothesis_judge_model: gpt-4.1-mini
+  hypothesis_judge_api_key_env: OPENAI_API_KEY
+
+redaction:
+  external_llm_allowed: true
+```
+
+The model-backed hypothesis judge receives the interpreted user intent, final response, tool sequence, execution steps, judge plan, local fallback findings, and compact codebase behavior map. It must either return evidence-cited findings or abstain. Weak local lexical intent findings are replaced by the model judgment; structural findings such as missing trace coverage and observed runtime errors are preserved.
+
 ## Fast Adoption Path
 
 The first 30 minutes should prove LoopForge can inspect the repo, read traces, and draft evidence-backed artifacts without changing production behavior:

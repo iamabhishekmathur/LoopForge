@@ -79,6 +79,10 @@ analysis:
   issue_judge_endpoint: https://api.openai.com/v1/chat/completions
   issue_judge_model: gpt-4.1-mini
   issue_judge_api_key_env: OPENAI_API_KEY
+  hypothesis_judge: local
+  hypothesis_judge_endpoint: https://api.openai.com/v1/chat/completions
+  hypothesis_judge_model: gpt-4.1-mini
+  hypothesis_judge_api_key_env: OPENAI_API_KEY
 
 connect:
   auto_detect_trace_source: true
@@ -373,18 +377,60 @@ def configured_issue_judge(root: Path):
     raise ValueError(f"unsupported analysis.issue_judge mode: {mode}")
 
 
+def configured_hypothesis_judge(root: Path):
+    from loopforge.judging.model_judge import (
+        JsonFileHypothesisJudge,
+        LocalHypothesisJudge,
+        OpenAICompatibleHypothesisJudge,
+    )
+
+    mode = (_first_scalar_config_value(root, "hypothesis_judge") or "local").strip().lower()
+    if mode in {"local", "fallback", "structured"}:
+        return LocalHypothesisJudge()
+    if mode in {"json", "json_file", "recorded"}:
+        path_value = _first_scalar_config_value(root, "hypothesis_judge_path")
+        if not path_value:
+            raise ValueError(
+                "analysis.hypothesis_judge_path is required when hypothesis_judge is json_file"
+            )
+        path = Path(path_value)
+        return JsonFileHypothesisJudge(path if path.is_absolute() else root / path)
+    if mode in {"openai", "openai_compatible", "llm"}:
+        if not configured_external_llm_allowed(root):
+            raise ValueError(
+                "redaction.external_llm_allowed must be true before using a live hypothesis judge"
+            )
+        timeout = _float_config_value(root, "hypothesis_judge_timeout_seconds", 30.0)
+        max_chars = int(_float_config_value(root, "hypothesis_judge_max_payload_chars", 60000.0))
+        return OpenAICompatibleHypothesisJudge(
+            endpoint=_first_scalar_config_value(root, "hypothesis_judge_endpoint")
+            or _first_scalar_config_value(root, "issue_judge_endpoint")
+            or "https://api.openai.com/v1/chat/completions",
+            model=_first_scalar_config_value(root, "hypothesis_judge_model")
+            or _first_scalar_config_value(root, "issue_judge_model")
+            or "gpt-4.1-mini",
+            api_key_env=_first_scalar_config_value(root, "hypothesis_judge_api_key_env")
+            or _first_scalar_config_value(root, "issue_judge_api_key_env")
+            or "OPENAI_API_KEY",
+            timeout_seconds=timeout,
+            max_payload_chars=max_chars,
+        )
+    raise ValueError(f"unsupported analysis.hypothesis_judge mode: {mode}")
+
+
 def _first_scalar_config_value(root: Path, key: str) -> str | None:
     config_path = root / PROJECT_CONFIG
     if not config_path.exists():
         return None
 
     prefix = f"{key}:"
+    found: str | None = None
     for raw_line in config_path.read_text(encoding="utf-8").splitlines():
         stripped = raw_line.strip()
         if stripped.startswith(prefix):
             value = stripped.split(":", 1)[1].strip()
-            return value.strip("\"'")
-    return None
+            found = value.strip("\"'")
+    return found
 
 
 def _float_config_value(root: Path, key: str, default: float) -> float:

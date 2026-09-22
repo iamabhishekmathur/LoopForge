@@ -330,6 +330,33 @@ redaction:
 
 The judge compares what should have happened according to the codebase, agent flow, prompts, Skills, routing rules, tool contracts, context policy, and guardrails against what actually happened in traces. The issue report records expected-vs-actual behavior, behavior gaps, violated contracts, and judge provenance so reviewers can tell whether a diagnosis came from the local fallback, a recorded AI judge, or a live model judge.
 
+## AI Hypothesis Judge
+
+`loopforge judge run` can also use a trace-level hypothesis judge. This is the primary path when there is no ground truth: the judge receives the interpreted user intent, final answer, tool sequence, execution steps, local fallback findings, judge plan, and compact codebase behavior map. It should return evidence-backed hypotheses or abstain.
+
+Recorded fixture for deterministic qualification:
+
+```yaml
+analysis:
+  hypothesis_judge: json_file
+  hypothesis_judge_path: observability/judges/hypothesis-findings.json
+```
+
+Live OpenAI-compatible judge:
+
+```yaml
+analysis:
+  hypothesis_judge: openai_compatible
+  hypothesis_judge_endpoint: https://api.openai.com/v1/chat/completions
+  hypothesis_judge_model: gpt-4.1-mini
+  hypothesis_judge_api_key_env: OPENAI_API_KEY
+
+redaction:
+  external_llm_allowed: true
+```
+
+The model-backed hypothesis judge replaces weak local lexical findings, while LoopForge preserves structural findings such as missing trace coverage and observed runtime errors. This keeps the default path conservative and makes stronger model judgment an explicit opt-in.
+
 ## Common Problems
 
 ### `connectors doctor` says `needs_credentials`

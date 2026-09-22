@@ -8,6 +8,7 @@ from pathlib import Path
 
 from loopforge.judging.behavior_map import build_behavior_map
 from loopforge.judging.interpreter import interpret_trace
+from loopforge.judging.model_judge import OpenAICompatibleHypothesisJudge
 from loopforge.judging.planner import plan_judges
 from loopforge.models.harness import HarnessArtifact
 from loopforge.models.trace import Trace
@@ -287,3 +288,145 @@ def test_judge_cli_persists_hypothesis_findings(tmp_path: Path) -> None:
     assert "findings: 0" in judge.stdout
     assert findings.returncode == 0, findings.stderr
     assert "insufficient_trace_coverage" not in findings.stdout
+
+
+def test_recorded_hypothesis_judge_replaces_weak_local_intent_gap(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "harness").mkdir()
+    (project / "traces").mkdir()
+    (project / "harness" / "router.md").write_text(
+        "Cancellation requests must route to the retention agent before cancellation tools.",
+        encoding="utf-8",
+    )
+    trace = {
+        "schema_version": "1",
+        "trace_id": "tr_route_gap",
+        "started_at": "2026-09-21T00:00:00Z",
+        "inputs": {"user_message": "Can you help me cancel my account?"},
+        "outputs": {"assistant_message": "I checked the weather forecast."},
+        "spans": [
+            {
+                "span_id": "sp_1",
+                "type": "tool_call",
+                "name": "weather_lookup",
+                "started_at": "2026-09-21T00:00:01Z",
+                "input": {"city": "Toronto"},
+                "output": {"forecast": "sunny"},
+            }
+        ],
+    }
+    judge_payload = {
+        "findings": [
+            {
+                "finding_type": "tool_selection_mismatch",
+                "title": "Cancellation request routed to unrelated tool",
+                "hypothesis": "The user asked for cancellation help, but the trace used weather_lookup.",
+                "severity": "medium",
+                "confidence": 0.86,
+                "supporting_trace_evidence": [
+                    {"kind": "user_intent", "value": "Can you help me cancel my account?"},
+                    {"kind": "tool_calls", "value": ["weather_lookup"]},
+                ],
+                "supporting_codebase_evidence": [
+                    {
+                        "contract_type": "routing_policy",
+                        "source_path": "harness/router.md",
+                        "summary": "Cancellation requests must route to retention.",
+                        "confidence": 0.9,
+                    }
+                ],
+                "missing_evidence": [],
+                "recommended_next_action": "Inspect router policy before patching.",
+                "expected_behavior": "Route cancellation requests to retention.",
+                "actual_behavior": "Called weather_lookup.",
+            }
+        ]
+    }
+    (project / "traces" / "sample.jsonl").write_text(json.dumps(trace) + "\n", encoding="utf-8")
+    (project / "judge.json").write_text(json.dumps(judge_payload), encoding="utf-8")
+
+    init = run_loopforge(["init", "--trace-path", "traces/*.jsonl"], project)
+    config_path = project / "loopforge.yaml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
+        + "\nanalysis:\n"
+        + "  hypothesis_judge: json_file\n"
+        + "  hypothesis_judge_path: judge.json\n",
+        encoding="utf-8",
+    )
+    shadow = run_loopforge(["shadow"], project)
+    judge = run_loopforge(["judge", "run"], project)
+    findings = run_loopforge(["judge", "list"], project)
+
+    assert init.returncode == 0, init.stderr
+    assert shadow.returncode == 0, shadow.stderr
+    assert judge.returncode == 0, judge.stderr
+    assert "findings: 1" in judge.stdout
+    assert findings.returncode == 0, findings.stderr
+    assert "tool_selection_mismatch" in findings.stdout
+    assert "possible_intent_mismatch" not in findings.stdout
+
+
+def test_live_hypothesis_judge_requires_external_llm_opt_in(tmp_path: Path) -> None:
+    (tmp_path / "loopforge.yaml").write_text(
+        "version: 1\n"
+        "analysis:\n"
+        "  hypothesis_judge: openai_compatible\n",
+        encoding="utf-8",
+    )
+
+    from loopforge.config import configured_hypothesis_judge
+
+    try:
+        configured_hypothesis_judge(tmp_path)
+    except ValueError as exc:
+        assert "external_llm_allowed" in str(exc)
+    else:
+        raise AssertionError("expected external LLM opt-in failure")
+
+
+def test_hypothesis_llm_payload_includes_trace_plan_and_codebase_context() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_payload",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_message": "Can you cancel my account?"},
+            "outputs": {"assistant_message": "I checked the weather."},
+            "spans": [
+                {
+                    "span_id": "sp_1",
+                    "type": "tool_call",
+                    "name": "weather_lookup",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {"city": "Toronto"},
+                    "output": {"forecast": "sunny"},
+                }
+            ],
+        }
+    )
+    artifact = HarnessArtifact(
+        artifact_id="router_1",
+        artifact_type="routing_policy",
+        path="harness/router.md",
+        confidence=0.9,
+        last_indexed_at="2026-09-21T00:00:00Z",
+        summary="Cancellation requests must route to retention.",
+    )
+    behavior_map = build_behavior_map([artifact])
+    observed = interpret_trace(trace)
+    plan = plan_judges(observed, behavior_map)
+    judge = OpenAICompatibleHypothesisJudge(
+        endpoint="https://example.invalid/v1/chat/completions",
+        model="test-model",
+    )
+
+    payload = json.loads(judge._user_payload(observed, plan, behavior_map, []))
+
+    assert "No ground truth is available" in payload["task"]
+    assert payload["observed_run"]["user_intent"] == "Can you cancel my account?"
+    assert payload["observed_run"]["tool_calls"] == ["weather_lookup"]
+    assert payload["judge_plan"]["trace_id"] == "tr_payload"
+    assert payload["behavior_map"]["contracts"][0]["source_path"] == "harness/router.md"
+    assert "findings" in payload["output_contract"]
