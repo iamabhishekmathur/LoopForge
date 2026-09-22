@@ -186,6 +186,112 @@ def test_interpreter_prefers_real_user_request_over_internal_human_prompt() -> N
     assert "BEHAVIOURAL LAYER" not in observed.user_intent
 
 
+def test_interpreter_does_not_treat_tool_use_as_final_response() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_tool_use_final",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_message": "Which branches are profitable?"},
+            "outputs": {
+                "output": {
+                    "type": "ai",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "submit_reflection",
+                            "input": {"issues": [], "retry": False},
+                        }
+                    ],
+                }
+            },
+            "spans": [
+                {
+                    "span_id": "sp_1",
+                    "type": "llm_call",
+                    "name": "ChatAnthropic",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {},
+                    "output": {
+                        "output": {
+                            "type": "ai",
+                            "content": (
+                                "This report ranks branch profitability using deposit income proxy. "
+                                "The top branches are profitable while several admin centers are not."
+                            ),
+                        }
+                    },
+                },
+                {
+                    "span_id": "sp_2",
+                    "type": "router",
+                    "name": "post_execution_node",
+                    "started_at": "2026-09-21T00:00:02Z",
+                    "input": {},
+                    "output": {
+                        "output": {
+                            "goto": "__end__",
+                            "update": {"artifact_store": {"artifacts": []}},
+                        }
+                    },
+                },
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.final_response is not None
+    assert "deposit income proxy" in observed.final_response
+    assert "submit_reflection" not in observed.final_response
+    assert "artifact_store" not in observed.final_response
+
+
+def test_interpreter_extracts_summary_from_tool_use_response() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_tool_use_summary",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_message": "Which branches are profitable?"},
+            "outputs": {
+                "output": {
+                    "type": "ai",
+                    "content": [
+                        {
+                            "caller": {"type": "direct"},
+                            "type": "tool_use",
+                            "name": "submit_narration",
+                            "input": {
+                                "textToSQLSummary": (
+                                    "This report covers branch-level deposit performance and "
+                                    "identifies profitable branches using deposit income proxy."
+                                )
+                            },
+                        }
+                    ],
+                }
+            },
+            "spans": [
+                {
+                    "span_id": "sp_1",
+                    "type": "llm_call",
+                    "name": "ChatAnthropic",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {},
+                    "output": {},
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.final_response is not None
+    assert observed.final_response.startswith("This report covers branch-level")
+    assert "submit_narration" not in observed.final_response
+
+
 def test_judge_planner_names_missing_evidence_for_partial_trace() -> None:
     trace = Trace.from_dict(
         {

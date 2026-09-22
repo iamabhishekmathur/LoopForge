@@ -97,15 +97,16 @@ def _extract_user_intent(trace: Trace) -> str | None:
 def _extract_final_response(trace: Trace) -> str | None:
     candidates: list[Any] = [trace.outputs]
     candidates.extend(reversed([span.output for span in trace.spans]))
+    final_candidates: list[str] = []
     for candidate in candidates:
         value = _find_role_text(candidate, {"assistant", "ai", "aimessage"})
         if value and not _looks_like_tabular_payload(value):
-            return value
+            final_candidates.append(value)
     for candidate in candidates:
         value = _find_text(candidate, FINAL_RESPONSE_KEYS)
         if value and not _looks_like_tabular_payload(value):
-            return value
-    return None
+            final_candidates.append(value)
+    return _select_final_response(final_candidates)
 
 
 def _extract_tool_calls(spans: list[Span]) -> list[str]:
@@ -263,6 +264,37 @@ def _select_user_intent(candidates: list[str]) -> str | None:
     return viable[0][1]
 
 
+def _select_final_response(candidates: list[str]) -> str | None:
+    scored: list[tuple[int, str]] = []
+    for candidate in candidates:
+        text = _clean_text(candidate)
+        if not text or _looks_like_tabular_payload(text):
+            continue
+        if _looks_like_tool_call_payload(text) or _looks_like_internal_state_payload(text):
+            continue
+        if _looks_like_internal_prompt(text):
+            continue
+        score = 0
+        if not text.lstrip().startswith(("{", "[")):
+            score += 5
+        else:
+            score += 1
+        if len(text) >= 40:
+            score += 2
+        if len(text) > 4000:
+            score -= 2
+        if re.search(r"[.!?]\s", text):
+            score += 2
+        if any(marker in text.lower() for marker in ("summary", "result", "report", "analysis")):
+            score += 1
+        scored.append((score, text))
+    viable = [item for item in scored if item[0] > 0]
+    if not viable:
+        return None
+    viable.sort(key=lambda item: (item[0], -len(item[1])), reverse=True)
+    return viable[0][1]
+
+
 def _normalize_role(value: str) -> str:
     return value.lower().replace("_", "").replace("-", "")
 
@@ -299,6 +331,12 @@ def _looks_like_internal_prompt(text: str) -> bool:
         "developer instruction",
         "tool instructions",
         "response format",
+        "sql generation plan",
+        "**sql query:**",
+        "### snowflake dialect rules",
+        "you will be provided",
+        "critical output rule",
+        "output format",
     )
     return any(marker in lowered for marker in markers)
 
@@ -313,6 +351,9 @@ def _extract_string(value: Any) -> str | None:
         text = "\n".join(part for part in parts if part)
         return _clean_text(text) if text else None
     if isinstance(value, dict):
+        tool_text = _extract_tool_use_text(value)
+        if tool_text:
+            return tool_text
         if "content" in value:
             return _extract_string(value["content"])
         if "text" in value:
@@ -327,6 +368,24 @@ def _extract_string(value: Any) -> str | None:
         preview = _preview(value, max_chars=1200)
         if preview and not _looks_like_tabular_payload(preview):
             return preview
+    return None
+
+
+def _extract_tool_use_text(value: dict[str, Any]) -> str | None:
+    value_type = _normalize_role(str(value.get("type") or ""))
+    if value_type not in {"tooluse", "toolcall"}:
+        return None
+    tool_input = value.get("input")
+    if not isinstance(tool_input, dict):
+        args = value.get("args")
+        tool_input = args if isinstance(args, dict) else None
+    if not isinstance(tool_input, dict):
+        return None
+    for key in ("textToSQLSummary", "narration", "summary", "answer", "response"):
+        if key in tool_input:
+            found = _extract_string(tool_input[key])
+            if found:
+                return found
     return None
 
 
@@ -354,6 +413,26 @@ def _looks_like_sql_only(text: str) -> bool:
 def _looks_like_tabular_payload(text: str) -> bool:
     lowered = text.lower()
     return "rowscount" in lowered or ("columns" in lowered and "rows" in lowered)
+
+
+def _looks_like_tool_call_payload(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        '"type": "tool_use"' in lowered
+        or '"type": "tool_call"' in lowered
+        or ('"tool_calls"' in lowered and '"args"' in lowered)
+        or ('"caller"' in lowered and '"input"' in lowered)
+    )
+
+
+def _looks_like_internal_state_payload(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        '"goto": "__end__"' in lowered
+        or '"artifact_store"' in lowered
+        or '"app_context_gathered_info"' in lowered
+        or '"app_generation_context"' in lowered
+    )
 
 
 def _has_sql(trace: Trace) -> bool:
