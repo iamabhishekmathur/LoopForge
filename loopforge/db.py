@@ -278,6 +278,16 @@ class Store:
         )
         self.connection.commit()
 
+    def delete_hypothesis_findings_for_traces(self, trace_ids: list[str]) -> None:
+        if not trace_ids:
+            return
+        placeholders = ",".join("?" for _ in trace_ids)
+        self.connection.execute(
+            f"delete from hypothesis_findings where trace_id in ({placeholders})",
+            trace_ids,
+        )
+        self.connection.commit()
+
     def upsert_harness_artifact(self, artifact: dict[str, Any]) -> None:
         self.connection.execute(
             """

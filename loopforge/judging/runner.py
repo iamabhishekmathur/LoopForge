@@ -30,6 +30,9 @@ def run_hypothesis_judging(root: Path, limit: int | None = None) -> JudgeRunResu
         artifact_payloads = store.list_harness_artifacts()
         artifacts = [HarnessArtifact.from_dict(payload) for payload in artifact_payloads]
         behavior_map = build_behavior_map(artifacts)
+        store.delete_hypothesis_findings_for_traces(
+            [str(payload["trace_id"]) for payload in trace_payloads if payload.get("trace_id")]
+        )
         findings: list[HypothesisFinding] = []
         for payload in trace_payloads:
             trace = Trace.from_dict(payload)
@@ -46,4 +49,3 @@ def run_hypothesis_judging(root: Path, limit: int | None = None) -> JudgeRunResu
         finding_count=len(findings),
         stored_count=len(findings),
     )
-

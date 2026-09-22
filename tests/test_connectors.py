@@ -187,6 +187,42 @@ def test_langsmith_flat_runs_are_grouped_by_trace_id() -> None:
     assert traces[0].spans[1].input == {"db_query": "select cancellation_reason, count(*) from orders group by 1"}
 
 
+def test_hosted_adapter_redacts_sensitive_request_fields() -> None:
+    payload = {
+        "runs": [
+            {
+                "id": "root-run",
+                "trace_id": "trace-1",
+                "name": "agent",
+                "run_type": "chain",
+                "start_time": "2026-01-01T00:00:00Z",
+                "inputs": {
+                    "headers": {
+                        "Authorization": "Bearer secret-token",
+                        "Cookie": "session=secret-cookie",
+                        "User-Agent": "Browser",
+                    },
+                    "csrf": "secret-csrf",
+                    "message": "hello",
+                },
+                "outputs": {"answer": "done", "access_token": "secret-access-token"},
+            }
+        ]
+    }
+
+    traces = normalize_provider_payload("langsmith", payload, "prod")
+    serialized = json.dumps(traces[0].to_dict())
+
+    assert "secret-token" not in serialized
+    assert "secret-cookie" not in serialized
+    assert "secret-csrf" not in serialized
+    assert "secret-access-token" not in serialized
+    assert traces[0].inputs["headers"] == {"[redacted]": True}
+    assert traces[0].inputs["csrf"] == "[redacted]"
+    assert traces[0].inputs["message"] == "hello"
+    assert traces[0].outputs["access_token"] == "[redacted]"
+
+
 def test_hosted_adapter_preserves_human_approval_spans() -> None:
     payload = {
         "runs": [

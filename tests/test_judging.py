@@ -61,6 +61,130 @@ def test_interpreter_scores_full_agent_trace_as_more_judgeable() -> None:
     assert "final_response" in observed.available_evidence
 
 
+def test_interpreter_extracts_langchain_tuple_messages() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_langchain_tuple",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {
+                "input": [
+                    ["system", "You are a citation assistant."],
+                    [
+                        "user",
+                        "## User question\nare there other concentrations that we should be monitoring?\n\n## Steps to document\n...",
+                    ],
+                ]
+            },
+            "outputs": {"output": {"entries": [{"ref": "balance_conc"}]}},
+            "spans": [
+                {
+                    "span_id": "sp_1",
+                    "type": "llm_call",
+                    "name": "ChatAnthropic",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {},
+                    "output": {},
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.user_intent == "are there other concentrations that we should be monitoring?"
+    assert observed.final_response is not None
+    assert "balance_conc" in observed.final_response
+    assert "user_intent" in observed.available_evidence
+    assert "final_response" in observed.available_evidence
+
+
+def test_interpreter_extracts_langchain_human_messages() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_langchain_human",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"input": {"reasoning": "tool result"}},
+            "outputs": {"output": {"reasoning": "classified as high risk", "risk_level": "high"}},
+            "spans": [
+                {
+                    "span_id": "sp_1",
+                    "type": "router",
+                    "name": "sql_gen_tool_dispatch",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {
+                        "input": [
+                            {
+                                "id": ["langchain", "schema", "messages", "HumanMessage"],
+                                "kwargs": {
+                                    "content": "Generate SQL.\n\nAnalytical plan request:\nwhat branches/centers have most at risk dollars and clients?\n\n"
+                                },
+                            }
+                        ]
+                    },
+                    "output": {},
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.user_intent == "what branches/centers have most at risk dollars and clients?"
+    assert observed.final_response is not None
+    assert "classified as high risk" in observed.final_response
+
+
+def test_interpreter_prefers_real_user_request_over_internal_human_prompt() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_langchain_internal_prompt",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {},
+            "outputs": {"output": {"reasoning": "risk is concentrated in three branches"}},
+            "spans": [
+                {
+                    "span_id": "sp_1",
+                    "type": "llm_call",
+                    "name": "ChatPromptTemplate",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {
+                        "messages": [
+                            {
+                                "id": ["langchain", "schema", "messages", "HumanMessage"],
+                                "kwargs": {
+                                    "content": (
+                                        "## BEHAVIOURAL LAYER\n"
+                                        "GLOBAL CRITICAL RULES\n"
+                                        "You are an expert analyst. Follow SQL Generation Principles."
+                                    )
+                                },
+                            },
+                            {
+                                "id": ["langchain", "schema", "messages", "HumanMessage"],
+                                "kwargs": {
+                                    "content": (
+                                        "Generate SQL.\n\nAnalytical plan request:\n"
+                                        "what branches/centers have most at risk dollars and clients?\n\n"
+                                    )
+                                },
+                            },
+                        ]
+                    },
+                    "output": {},
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.user_intent == "what branches/centers have most at risk dollars and clients?"
+    assert "BEHAVIOURAL LAYER" not in observed.user_intent
+
+
 def test_judge_planner_names_missing_evidence_for_partial_trace() -> None:
     trace = Trace.from_dict(
         {
@@ -140,3 +264,26 @@ def test_judge_cli_persists_hypothesis_findings(tmp_path: Path) -> None:
     assert findings.returncode == 0, findings.stderr
     assert "insufficient_trace_coverage" in findings.stdout
 
+    trace["inputs"] = {"user_message": "What plans can I downgrade to?"}
+    trace["outputs"] = {"assistant_message": "You can downgrade to Basic."}
+    trace["spans"] = [
+        {
+            "span_id": "sp_1",
+            "type": "tool_call",
+            "name": "downgrade_plan_lookup",
+            "started_at": "2026-09-21T00:00:01Z",
+            "input": {"user_message": "What plans can I downgrade to?"},
+            "output": {"plans": ["Basic"], "response": "You can downgrade to Basic."},
+        }
+    ]
+    (project / "traces" / "sample.jsonl").write_text(json.dumps(trace) + "\n", encoding="utf-8")
+
+    shadow = run_loopforge(["shadow"], project)
+    judge = run_loopforge(["judge", "run"], project)
+    findings = run_loopforge(["judge", "list"], project)
+
+    assert shadow.returncode == 0, shadow.stderr
+    assert judge.returncode == 0, judge.stderr
+    assert "findings: 0" in judge.stdout
+    assert findings.returncode == 0, findings.stderr
+    assert "insufficient_trace_coverage" not in findings.stdout

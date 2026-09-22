@@ -25,6 +25,25 @@ SUPPORTED_HOSTED_TYPES = {
     "http",
 }
 
+REDACTED = "[redacted]"
+_SENSITIVE_CONTAINER_KEYS = {
+    "headers",
+    "request_headers",
+    "response_headers",
+}
+_SENSITIVE_KEY_PARTS = (
+    "authorization",
+    "cookie",
+    "csrf",
+    "api_key",
+    "apikey",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "password",
+    "secret",
+)
+
 
 @dataclass(frozen=True)
 class HostedTraceAdapter(TraceAdapter):
@@ -739,10 +758,32 @@ def _feedback(record: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _object(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
-        return value
+        sanitized = _sanitize_hosted_value(value)
+        return sanitized if isinstance(sanitized, dict) else {}
     if value is None:
         return {}
     return {"value": value}
+
+
+def _sanitize_hosted_value(value: Any, key: str | None = None) -> Any:
+    if key and _is_sensitive_container_key(key):
+        return {REDACTED: True}
+    if key and _is_sensitive_key(key):
+        return REDACTED
+    if isinstance(value, dict):
+        return {str(item_key): _sanitize_hosted_value(item_value, str(item_key)) for item_key, item_value in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_hosted_value(item) for item in value]
+    return value
+
+
+def _is_sensitive_container_key(key: str) -> bool:
+    return key.lower().replace("-", "_") in _SENSITIVE_CONTAINER_KEYS
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = key.lower().replace("-", "_")
+    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
 
 
 def _span_type(value: str) -> str:

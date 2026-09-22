@@ -78,9 +78,18 @@ def interpret_trace(trace: Trace) -> ObservedAgentRun:
 def _extract_user_intent(trace: Trace) -> str | None:
     candidates: list[Any] = [trace.inputs]
     candidates.extend(span.input for span in trace.spans)
+    role_texts: list[str] = []
+    for candidate in candidates:
+        role_texts.extend(_role_text_candidates(candidate, {"user", "human", "humanmessage"}))
+    selected = _select_user_intent(role_texts)
+    if selected:
+        return selected
     for candidate in candidates:
         value = _find_text(candidate, USER_INTENT_KEYS)
-        if value and not _looks_like_sql_only(value):
+        marked = _extract_marked_user_question(value) if value else None
+        if marked and not _looks_like_sql_only(marked):
+            return marked
+        if value and not _looks_like_sql_only(value) and not _looks_like_internal_prompt(value):
             return value
     return None
 
@@ -88,6 +97,10 @@ def _extract_user_intent(trace: Trace) -> str | None:
 def _extract_final_response(trace: Trace) -> str | None:
     candidates: list[Any] = [trace.outputs]
     candidates.extend(reversed([span.output for span in trace.spans]))
+    for candidate in candidates:
+        value = _find_role_text(candidate, {"assistant", "ai", "aimessage"})
+        if value and not _looks_like_tabular_payload(value):
+            return value
     for candidate in candidates:
         value = _find_text(candidate, FINAL_RESPONSE_KEYS)
         if value and not _looks_like_tabular_payload(value):
@@ -178,6 +191,118 @@ def _find_text(value: Any, keys: tuple[str, ...]) -> str | None:
     return None
 
 
+def _find_role_text(value: Any, roles: set[str]) -> str | None:
+    candidates = _role_text_candidates(value, roles)
+    return candidates[0] if candidates else None
+
+
+def _role_text_candidates(value: Any, roles: set[str]) -> list[str]:
+    candidates: list[str] = []
+    if value is None:
+        return candidates
+    if isinstance(value, list):
+        if len(value) >= 2 and isinstance(value[0], str) and _normalize_role(value[0]) in roles:
+            found = _extract_string(value[1])
+            if found:
+                candidates.append(found)
+        for item in value:
+            candidates.extend(_role_text_candidates(item, roles))
+    if isinstance(value, dict):
+        role = value.get("role") or value.get("type")
+        if isinstance(role, str) and _normalize_role(role) in roles:
+            found = _extract_string(value.get("content") or value.get("text") or value)
+            if found:
+                candidates.append(found)
+        message_id = value.get("id")
+        if isinstance(message_id, list) and message_id:
+            message_kind = _normalize_role(str(message_id[-1]))
+            if message_kind in roles:
+                kwargs = value.get("kwargs") if isinstance(value.get("kwargs"), dict) else {}
+                found = _extract_string(kwargs.get("content") or value.get("content") or value.get("text"))
+                if found:
+                    candidates.append(found)
+        for item in value.values():
+            if isinstance(item, (dict, list)):
+                candidates.extend(_role_text_candidates(item, roles))
+    return candidates
+
+
+def _select_user_intent(candidates: list[str]) -> str | None:
+    marked: list[str] = []
+    scored: list[tuple[int, str]] = []
+    for candidate in candidates:
+        text = _clean_text(candidate)
+        if not text or _looks_like_sql_only(text):
+            continue
+        extracted = _extract_marked_user_question(text)
+        if extracted and not _looks_like_sql_only(extracted):
+            marked.append(extracted)
+            continue
+        if _looks_like_internal_prompt(text):
+            score = -4
+        else:
+            score = 0
+        if len(text) <= 500:
+            score += 4
+        elif len(text) <= 1000:
+            score += 2
+        else:
+            score -= 3
+        lowered = text.lower()
+        if "?" in text:
+            score += 2
+        if re.match(r"^(what|how|why|when|where|which|can|could|should|show|list|find|explain|create|generate)\b", lowered):
+            score += 2
+        scored.append((score, text))
+    if marked:
+        return sorted(marked, key=len)[0]
+    viable = [item for item in scored if item[0] > 0]
+    if not viable:
+        return None
+    viable.sort(key=lambda item: (item[0], -len(item[1])), reverse=True)
+    return viable[0][1]
+
+
+def _normalize_role(value: str) -> str:
+    return value.lower().replace("_", "").replace("-", "")
+
+
+def _extract_user_question(text: str) -> str:
+    return _extract_marked_user_question(text) or text
+
+
+def _extract_marked_user_question(text: str) -> str | None:
+    patterns = [
+        r"##\s*User question\s*(.+?)(?:\s*##\s|\s*###\s|\Z)",
+        r"Analytical plan request:\s*(.+?)(?:\n\s*\n|\Z)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            extracted = _clean_text(match.group(1))
+            if extracted:
+                return extracted
+    return None
+
+
+def _looks_like_internal_prompt(text: str) -> bool:
+    lowered = text.lower()
+    markers = (
+        "## behavioural layer",
+        "behavioral layer",
+        "global critical rules",
+        "sql generation principles",
+        "complete schema",
+        "custom skills",
+        "you are an expert",
+        "system prompt",
+        "developer instruction",
+        "tool instructions",
+        "response format",
+    )
+    return any(marker in lowered for marker in markers)
+
+
 def _extract_string(value: Any) -> str | None:
     if value is None:
         return None
@@ -194,6 +319,14 @@ def _extract_string(value: Any) -> str | None:
             return _extract_string(value["text"])
         if "role" in value and value.get("role") == "user":
             return _extract_string(value.get("content"))
+        for key in ("assistant_message", "final_response", "answer", "response", "summary", "reasoning", "output"):
+            if key in value:
+                found = _extract_string(value[key])
+                if found:
+                    return found
+        preview = _preview(value, max_chars=1200)
+        if preview and not _looks_like_tabular_payload(preview):
+            return preview
     return None
 
 
