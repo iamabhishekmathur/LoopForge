@@ -100,7 +100,9 @@ class HostedTraceAdapter(TraceAdapter):
             with urlopen(request, timeout=float(self.settings.get("timeout_seconds", "30"))) as response:
                 return json.loads(response.read().decode("utf-8"))
         except Exception as exc:
-            raise ValueError(f"{self.source_id}: failed to fetch hosted traces: {exc}") from exc
+            raise ValueError(
+                f"{self.source_id}: failed to fetch hosted traces: {_http_error_message(exc)}"
+            ) from exc
 
     def _fetch_post_body(self, endpoint: str, body: dict[str, Any]) -> Any:
         headers = {"Accept": "application/json"}
@@ -116,7 +118,9 @@ class HostedTraceAdapter(TraceAdapter):
             with urlopen(request, timeout=float(self.settings.get("timeout_seconds", "30"))) as response:
                 return json.loads(response.read().decode("utf-8"))
         except Exception as exc:
-            raise ValueError(f"{self.source_id}: failed to fetch hosted traces: {exc}") from exc
+            raise ValueError(
+                f"{self.source_id}: failed to fetch hosted traces: {_http_error_message(exc)}"
+            ) from exc
 
     def _hydrate_langsmith_payload(self, payload: Any) -> Any:
         if self.source_type != "langsmith":
@@ -136,7 +140,7 @@ class HostedTraceAdapter(TraceAdapter):
         base_body.pop("cursor", None)
         base_body["limit"] = run_limit
         for trace_id in trace_ids[:max_traces]:
-            body = {**base_body, "trace_id": trace_id}
+            body = {**base_body, "trace": trace_id}
             combined = _merge_payloads(combined, self._fetch_post_body(endpoint, body))
         return combined
 
@@ -812,6 +816,18 @@ def _auth_headers(source_type: str, api_key: str | None, settings: dict[str, str
     if source_type == "langsmith":
         return {"x-api-key": api_key}
     return {"Authorization": f"Bearer {api_key}"}
+
+
+def _http_error_message(exc: Exception) -> str:
+    read = getattr(exc, "read", None)
+    if not callable(read):
+        return str(exc)
+    try:
+        body = read().decode("utf-8", errors="replace")
+    except Exception:
+        return str(exc)
+    body = body.strip()
+    return f"{exc}: {body}" if body else str(exc)
 
 
 def _default_path(source_type: str) -> str:

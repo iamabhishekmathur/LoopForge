@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from loopforge.adapters.registry import (
     configured_trace_sources,
     connector_statuses,
@@ -580,12 +582,38 @@ def test_langsmith_adapter_hydrates_runs_by_trace_id(monkeypatch) -> None:
 
     assert bodies == [
         {"project_name": "support-agent", "limit": 1},
-        {"project_name": "support-agent", "limit": 100, "trace_id": "trace-1"},
+        {"project_name": "support-agent", "limit": 100, "trace": "trace-1"},
     ]
     assert len(traces) == 1
     assert traces[0].outputs == {"answer": "done"}
     assert [span.span_id for span in traces[0].spans] == ["root-run", "tool-run"]
     assert traces[0].spans[1].parent_span_id == "root-run"
+
+
+def test_hosted_adapter_includes_provider_error_detail(monkeypatch) -> None:
+    class FakeHTTPError(Exception):
+        def read(self) -> bytes:
+            return b'{"detail":"use trace selector"}'
+
+        def __str__(self) -> str:
+            return "HTTP Error 400: Bad Request"
+
+    def fake_urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        raise FakeHTTPError()
+
+    monkeypatch.setattr("loopforge.adapters.hosted.urlopen", fake_urlopen)
+    adapter = HostedTraceAdapter(
+        "prod",
+        "langsmith",
+        {
+            "base_url": "https://api.example.test",
+            "project": "support-agent",
+            "limit": "1",
+        },
+    )
+
+    with pytest.raises(ValueError, match="use trace selector"):
+        adapter.read(REPO_ROOT)
 
 
 def test_read_traces_can_ingest_hosted_fixture_source(tmp_path: Path) -> None:
