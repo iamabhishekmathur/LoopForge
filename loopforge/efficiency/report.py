@@ -47,7 +47,8 @@ def build_efficiency_report(root: Path) -> EfficiencyReport:
     evidence_bytes = sum(record.byte_count for record in evidence)
     reduced_bytes = sum(receipt.reduced_bytes for receipt in receipts)
     verified_receipts = [receipt for receipt in receipts if receipt.verification_status == "verified"]
-    failed_receipts = [receipt for receipt in receipts if receipt.verification_status != "verified"]
+    skipped_receipts = [receipt for receipt in receipts if receipt.verification_status == "skipped"]
+    failed_receipts = [receipt for receipt in receipts if receipt.verification_status == "failed"]
     compression_ratio = round(reduced_bytes / evidence_bytes, 4) if evidence_bytes else None
     metrics = {
         "trace_count": len(traces),
@@ -59,6 +60,7 @@ def build_efficiency_report(root: Path) -> EfficiencyReport:
         "evidence_bytes": evidence_bytes,
         "receipt_count": len(receipts),
         "verified_receipt_count": len(verified_receipts),
+        "skipped_receipt_count": len(skipped_receipts),
         "failed_receipt_count": len(failed_receipts),
         "reduced_bytes": reduced_bytes,
         "compression_ratio": compression_ratio,
@@ -76,6 +78,8 @@ def build_efficiency_report(root: Path) -> EfficiencyReport:
             "receipt_verification",
             "pass" if receipts and not failed_receipts else "warn" if not receipts else "fail",
             "All receipts verified."
+            if receipts and not failed_receipts and not skipped_receipts
+            else f"All reducible receipts verified; {len(skipped_receipts)} tiny records skipped."
             if receipts and not failed_receipts
             else "No receipts yet." if not receipts else f"{len(failed_receipts)} receipts failed.",
         ),

@@ -108,3 +108,37 @@ def test_evidence_show_and_receipt_show_are_addressable(tmp_path: Path) -> None:
     assert json.loads(evidence.stdout)["record"]["evidence_id"] == evidence_id
     assert receipt.returncode == 0, receipt.stderr
     assert json.loads(receipt.stdout)["receipt_id"] == receipt_id
+
+
+def test_tiny_evidence_is_skipped_not_failed(tmp_path: Path) -> None:
+    (tmp_path / "traces").mkdir()
+    trace = {
+        "schema_version": "1",
+        "trace_id": "tr_tiny",
+        "started_at": "2026-09-23T00:00:00Z",
+        "inputs": {"user_message": "Hi"},
+        "outputs": {"assistant_message": "Hello"},
+        "spans": [
+            {
+                "span_id": "sp_1",
+                "type": "tool_call",
+                "name": "noop",
+                "started_at": "2026-09-23T00:00:01Z",
+                "input": {"value": "tiny"},
+                "output": {"value": "tiny"},
+            }
+        ],
+    }
+    (tmp_path / "traces" / "sample.jsonl").write_text(json.dumps(trace) + "\n", encoding="utf-8")
+
+    assert run_loopforge(["init", "--trace-path", "traces/*.jsonl"], tmp_path).returncode == 0
+    assert run_loopforge(["shadow"], tmp_path).returncode == 0
+    assert run_loopforge(["evidence", "archive"], tmp_path).returncode == 0
+    reduce = run_loopforge(["evidence", "reduce"], tmp_path)
+    report = run_loopforge(["efficiency", "report"], tmp_path)
+
+    assert reduce.returncode == 0, reduce.stderr
+    assert "failed: 0" in reduce.stdout
+    assert "skipped:" in reduce.stdout
+    assert report.returncode == 0, report.stderr
+    assert "failed_receipt_count: `0`" in report.stdout

@@ -101,7 +101,7 @@ def reduce_evidence(root: Path, record: EvidenceRecord) -> ReductionReceipt:
     }
     reduced_bytes = len(json.dumps(receipt_payload, sort_keys=True).encode("utf-8"))
     failures = _verify_receipt(record, source, quotes, reduced_bytes)
-    status = "verified" if not failures else "failed"
+    status = _verification_status(record, failures)
     receipt_id = _receipt_id(record.evidence_id, record.content_sha256, summary, quotes)
     receipt = ReductionReceipt(
         receipt_id=receipt_id,
@@ -234,6 +234,14 @@ def _verify_receipt(
     if not quotes:
         failures.append("missing_quotes")
     return failures
+
+
+def _verification_status(record: EvidenceRecord, failures: list[str]) -> str:
+    if not failures:
+        return "verified"
+    if failures == ["no_size_reduction"] and record.byte_count < 2048:
+        return "skipped"
+    return "failed"
 
 
 def _write_receipt(root: Path, receipt: ReductionReceipt) -> None:

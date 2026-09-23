@@ -867,10 +867,12 @@ def command_evidence_reduce(args: argparse.Namespace) -> int:
     root = require_project_root(Path.cwd())
     receipts = reduce_all_evidence(root, limit=args.limit)
     verified = [receipt for receipt in receipts if receipt.verification_status == "verified"]
-    failed = [receipt for receipt in receipts if receipt.verification_status != "verified"]
+    skipped = [receipt for receipt in receipts if receipt.verification_status == "skipped"]
+    failed = [receipt for receipt in receipts if receipt.verification_status == "failed"]
     print("Evidence reduction complete")
     print(f"  receipts: {len(receipts)}")
     print(f"  verified: {len(verified)}")
+    print(f"  skipped: {len(skipped)}")
     print(f"  failed: {len(failed)}")
     return 1 if failed else 0
 
