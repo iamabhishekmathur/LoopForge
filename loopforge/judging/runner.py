@@ -7,6 +7,8 @@ from pathlib import Path
 
 from loopforge.config import configured_hypothesis_judge
 from loopforge.db import Store
+from loopforge.evidence.archive import archive_trace
+from loopforge.evidence.reducer import receipts_for_trace
 from loopforge.judging.model_judge import HypothesisJudge
 from loopforge.models.harness import HarnessArtifact
 from loopforge.models.hypothesis import HypothesisFinding
@@ -43,10 +45,22 @@ def run_hypothesis_judging(
         findings: list[HypothesisFinding] = []
         for payload in trace_payloads:
             trace = Trace.from_dict(payload)
+            archive_trace(root, trace.to_dict())
             observed = interpret_trace(trace)
             plan = plan_judges(observed, behavior_map)
             local_findings = judge_hypotheses(observed, plan, behavior_map)
-            for finding in selected_judge.judge(observed, plan, behavior_map, local_findings):
+            evidence_receipts = [
+                receipt.to_dict()
+                for receipt in receipts_for_trace(root, trace.trace_id)
+                if receipt.verification_status == "verified"
+            ]
+            for finding in selected_judge.judge(
+                observed,
+                plan,
+                behavior_map,
+                local_findings,
+                evidence_receipts=evidence_receipts,
+            ):
                 store.upsert_hypothesis_finding(finding.to_dict())
                 findings.append(finding)
     finally:

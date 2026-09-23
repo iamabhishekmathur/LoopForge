@@ -19,9 +19,26 @@ from .db import Store
 from .demo import run_demo
 from .discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from .discovery.scanner import discover_harness_artifacts, write_harness_index
+from .efficiency.report import (
+    build_efficiency_report,
+    efficiency_report_markdown,
+    write_efficiency_report,
+)
+from .evidence.archive import archive_trace, get_evidence, list_evidence
+from .evidence.reducer import (
+    get_receipt,
+    list_receipts,
+    receipts_for_trace,
+    reduce_all_evidence,
+)
 from .issues.report import issue_report_markdown, write_issue_report
 from .issues.resolution import build_resolution_plan, resolution_plan_markdown, write_resolution_plan
+from .judging.behavior_map import build_behavior_map
+from .judging.hypothesis import judge_hypotheses
+from .judging.interpreter import interpret_trace
+from .judging.model_judge import build_hypothesis_judge_payload
 from .judging.runner import run_hypothesis_judging
+from .judging.planner import plan_judges
 from .learning.report import learned_report_markdown, write_learned_report
 from .models.eval import EvalExample, EvaluatorDefinition, EvaluatorValidationRecord
 from .models.confirmation import ConfirmationReport
@@ -34,6 +51,7 @@ from .models.queue import RefinerQueueItem
 from .models.refinement import RefinementOperation
 from .models.runtime import RuntimeHarnessManifest
 from .models.state import HarnessStateSnapshot
+from .models.trace import Trace
 from .paths import PROJECT_CONFIG, find_project_root, require_project_root
 from .patching.generator import write_patch_bundle
 from .privacy.redaction import (
@@ -145,6 +163,27 @@ def build_parser() -> argparse.ArgumentParser:
     judge_subparsers.add_parser("list", help="List hypothesis findings.")
     judge_show = judge_subparsers.add_parser("show", help="Show one hypothesis finding.")
     judge_show.add_argument("finding_id")
+    judge_payload = judge_subparsers.add_parser(
+        "explain-payload",
+        help="Show the compact payload a model hypothesis judge would receive.",
+    )
+    judge_payload.add_argument("trace_id")
+
+    evidence = subparsers.add_parser("evidence", help="Archive and reduce trace evidence.")
+    evidence_subparsers = evidence.add_subparsers(dest="evidence_command", required=True)
+    evidence_subparsers.add_parser("archive", help="Archive stored traces and spans.")
+    evidence_subparsers.add_parser("list", help="List archived evidence records.")
+    evidence_show = evidence_subparsers.add_parser("show", help="Show one evidence record.")
+    evidence_show.add_argument("evidence_id")
+    evidence_reduce = evidence_subparsers.add_parser("reduce", help="Create verified reducer receipts.")
+    evidence_reduce.add_argument("--limit", type=int, default=None, help="Limit evidence records reduced.")
+    evidence_subparsers.add_parser("receipts", help="List reducer receipts.")
+    receipt_show = evidence_subparsers.add_parser("receipt", help="Show one reducer receipt.")
+    receipt_show.add_argument("receipt_id")
+
+    efficiency = subparsers.add_parser("efficiency", help="Report cost and evidence efficiency.")
+    efficiency_subparsers = efficiency.add_subparsers(dest="efficiency_command", required=True)
+    efficiency_subparsers.add_parser("report", help="Write and print an efficiency report.")
 
     queue = subparsers.add_parser("queue", help="Inspect or run async refinement queue items.")
     queue_subparsers = queue.add_subparsers(dest="queue_command", required=True)
@@ -749,6 +788,132 @@ def command_judge_show(args: argparse.Namespace) -> int:
         return 1
     print(_hypothesis_markdown(finding))
     return 0
+
+
+def command_judge_explain_payload(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        trace_payload = _stored_trace_payload(store, args.trace_id)
+        artifacts = [HarnessArtifact.from_dict(payload) for payload in store.list_harness_artifacts()]
+    finally:
+        store.close()
+    if trace_payload is None:
+        print(f"error: trace not found: {args.trace_id}", file=sys.stderr)
+        return 1
+    trace = Trace.from_dict(trace_payload)
+    observed = interpret_trace(trace)
+    behavior_map = build_behavior_map(artifacts)
+    plan = plan_judges(observed, behavior_map)
+    local_findings = judge_hypotheses(observed, plan, behavior_map)
+    receipts = [
+        receipt.to_dict()
+        for receipt in receipts_for_trace(root, trace.trace_id)
+        if receipt.verification_status == "verified"
+    ]
+    payload = build_hypothesis_judge_payload(
+        observed,
+        plan,
+        behavior_map,
+        local_findings,
+        evidence_receipts=receipts,
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def command_evidence_archive(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    store = Store.for_project(root)
+    try:
+        traces = store.list_traces()
+    finally:
+        store.close()
+    records = []
+    for trace in traces:
+        records.extend(archive_trace(root, trace))
+    print("Evidence archive complete")
+    print(f"  traces: {len(traces)}")
+    print(f"  records: {len(records)}")
+    return 0
+
+
+def command_evidence_list(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    records = list_evidence(root)
+    if not records:
+        print("No evidence records found.")
+        return 0
+    for record in records:
+        print(
+            f"{record.evidence_id}  {record.source_type:8}  "
+            f"bytes={record.byte_count}  source={record.source_id}"
+        )
+    return 0
+
+
+def command_evidence_show(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    result = get_evidence(root, args.evidence_id)
+    if result is None:
+        print(f"error: evidence not found: {args.evidence_id}", file=sys.stderr)
+        return 1
+    record, payload = result
+    print(json.dumps({"record": record.to_dict(), "payload": payload}, indent=2, sort_keys=True))
+    return 0
+
+
+def command_evidence_reduce(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    receipts = reduce_all_evidence(root, limit=args.limit)
+    verified = [receipt for receipt in receipts if receipt.verification_status == "verified"]
+    failed = [receipt for receipt in receipts if receipt.verification_status != "verified"]
+    print("Evidence reduction complete")
+    print(f"  receipts: {len(receipts)}")
+    print(f"  verified: {len(verified)}")
+    print(f"  failed: {len(failed)}")
+    return 1 if failed else 0
+
+
+def command_evidence_receipts(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    receipts = list_receipts(root)
+    if not receipts:
+        print("No evidence receipts found.")
+        return 0
+    for receipt in receipts:
+        print(
+            f"{receipt.receipt_id}  {receipt.verification_status:8}  "
+            f"ratio={receipt.compression_ratio}  evidence={receipt.evidence_id}"
+        )
+    return 0
+
+
+def command_evidence_receipt_show(args: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    receipt = get_receipt(root, args.receipt_id)
+    if receipt is None:
+        print(f"error: receipt not found: {args.receipt_id}", file=sys.stderr)
+        return 1
+    print(json.dumps(receipt.to_dict(), indent=2, sort_keys=True))
+    return 0
+
+
+def command_efficiency_report(_: argparse.Namespace) -> int:
+    root = require_project_root(Path.cwd())
+    report = build_efficiency_report(root)
+    path = write_efficiency_report(root, report)
+    print(efficiency_report_markdown(report))
+    print("")
+    print(f"Wrote efficiency report: {path.relative_to(root)}")
+    return 1 if any(gate["status"] == "fail" for gate in report.gates) else 0
+
+
+def _stored_trace_payload(store: Store, trace_id: str) -> dict[str, object] | None:
+    for payload in store.list_traces():
+        if str(payload.get("trace_id")) == trace_id:
+            return payload
+    return None
 
 
 def _hypothesis_markdown(finding: dict[str, object]) -> str:
@@ -1866,6 +2031,22 @@ def run(argv: list[str] | None = None) -> int:
         return command_judge_list(args)
     if args.command == "judge" and args.judge_command == "show":
         return command_judge_show(args)
+    if args.command == "judge" and args.judge_command == "explain-payload":
+        return command_judge_explain_payload(args)
+    if args.command == "evidence" and args.evidence_command == "archive":
+        return command_evidence_archive(args)
+    if args.command == "evidence" and args.evidence_command == "list":
+        return command_evidence_list(args)
+    if args.command == "evidence" and args.evidence_command == "show":
+        return command_evidence_show(args)
+    if args.command == "evidence" and args.evidence_command == "reduce":
+        return command_evidence_reduce(args)
+    if args.command == "evidence" and args.evidence_command == "receipts":
+        return command_evidence_receipts(args)
+    if args.command == "evidence" and args.evidence_command == "receipt":
+        return command_evidence_receipt_show(args)
+    if args.command == "efficiency" and args.efficiency_command == "report":
+        return command_efficiency_report(args)
     if args.command == "queue" and args.queue_command == "list":
         return command_queue_list(args)
     if args.command == "queue" and args.queue_command == "run-next":

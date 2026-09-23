@@ -9,6 +9,8 @@ from typing import Any
 
 from loopforge.adapters.registry import connector_statuses
 from loopforge.db import Store
+from loopforge.evidence.archive import list_evidence
+from loopforge.evidence.reducer import list_receipts
 from loopforge.paths import LOCAL_DIR
 
 
@@ -38,6 +40,8 @@ def collect_dashboard_data(root: Path) -> dict[str, Any]:
             "prs": store.list_pr_artifacts(),
             "manifests": store.list_runtime_manifests(),
             "states": store.list_harness_states(),
+            "evidence": [record.to_dict() for record in list_evidence(root)],
+            "receipts": [receipt.to_dict() for receipt in list_receipts(root)],
         }
     finally:
         store.close()
@@ -117,6 +121,8 @@ def render_dashboard(data: dict[str, Any]) -> str:
     {_table("PR Artifacts", data.get("prs", []), ["pr_id", "status", "patch_id", "branch_name"])}
     {_table("Runtime Manifests", data.get("manifests", []), ["manifest_id", "agent_id", "agent_version", "model_name"])}
     {_table("Harness States", data.get("states", []), ["state_id", "source", "confidence", "operation_ids"])}
+    {_table("Evidence Archive", data.get("evidence", []), ["evidence_id", "source_type", "source_id", "byte_count"])}
+    {_table("Evidence Receipts", data.get("receipts", []), ["receipt_id", "verification_status", "compression_ratio", "evidence_id"])}
   </main>
 </body>
 </html>
@@ -135,6 +141,8 @@ def _overview(data: dict[str, Any]) -> str:
         ("Queue", len(data.get("queue_items", []))),
         ("PRs", len(data.get("prs", []))),
         ("States", len(data.get("states", []))),
+        ("Evidence", len(data.get("evidence", []))),
+        ("Receipts", len(data.get("receipts", []))),
     ]
     cards = "\n".join(
         f'<div class="metric"><span class="muted">{escape(label)}</span><strong>{value}</strong></div>'

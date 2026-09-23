@@ -22,6 +22,7 @@ class HypothesisJudge(Protocol):
         plan: JudgePlan,
         behavior_map: AgentBehaviorMap,
         local_findings: list[HypothesisFinding],
+        evidence_receipts: list[dict[str, Any]] | None = None,
     ) -> list[HypothesisFinding]:
         ...
 
@@ -36,6 +37,7 @@ class LocalHypothesisJudge:
         plan: JudgePlan,
         behavior_map: AgentBehaviorMap,
         local_findings: list[HypothesisFinding],
+        evidence_receipts: list[dict[str, Any]] | None = None,
     ) -> list[HypothesisFinding]:
         return local_findings
 
@@ -52,6 +54,7 @@ class JsonFileHypothesisJudge:
         plan: JudgePlan,
         behavior_map: AgentBehaviorMap,
         local_findings: list[HypothesisFinding],
+        evidence_receipts: list[dict[str, Any]] | None = None,
     ) -> list[HypothesisFinding]:
         payload = json.loads(self.path.read_text(encoding="utf-8"))
         return _findings_from_judge_payload(
@@ -81,6 +84,7 @@ class OpenAICompatibleHypothesisJudge:
         plan: JudgePlan,
         behavior_map: AgentBehaviorMap,
         local_findings: list[HypothesisFinding],
+        evidence_receipts: list[dict[str, Any]] | None = None,
     ) -> list[HypothesisFinding]:
         api_key = os.environ.get(self.api_key_env)
         if not api_key:
@@ -94,7 +98,13 @@ class OpenAICompatibleHypothesisJudge:
                 {"role": "system", "content": HYPOTHESIS_JUDGE_SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": self._user_payload(run, plan, behavior_map, local_findings),
+                    "content": self._user_payload(
+                        run,
+                        plan,
+                        behavior_map,
+                        local_findings,
+                        evidence_receipts=evidence_receipts,
+                    ),
                 },
             ],
         }
@@ -131,21 +141,15 @@ class OpenAICompatibleHypothesisJudge:
         plan: JudgePlan,
         behavior_map: AgentBehaviorMap,
         local_findings: list[HypothesisFinding],
+        evidence_receipts: list[dict[str, Any]] | None = None,
     ) -> str:
-        payload = {
-            "task": (
-                "Act as a third-party reviewer of one agent trace. Infer what should have "
-                "happened from the codebase-derived behavior map, tool contracts, prompts, "
-                "Skills, routing, context policy, and guardrails. Compare that against what "
-                "actually happened in the observed trace. No ground truth is available, so "
-                "produce only evidence-backed hypotheses or abstain."
-            ),
-            "output_contract": HYPOTHESIS_JUDGE_OUTPUT_CONTRACT,
-            "observed_run": _compact_run(run),
-            "judge_plan": plan.to_dict(),
-            "behavior_map": _compact_behavior_map(behavior_map),
-            "local_findings": [finding.to_dict() for finding in local_findings],
-        }
+        payload = build_hypothesis_judge_payload(
+            run,
+            plan,
+            behavior_map,
+            local_findings,
+            evidence_receipts=evidence_receipts,
+        )
         text = json.dumps(payload, indent=2, sort_keys=True)
         if len(text) <= self.max_payload_chars:
             return text
@@ -192,6 +196,36 @@ HYPOTHESIS_JUDGE_OUTPUT_CONTRACT = {
         }
     ],
 }
+
+
+def build_hypothesis_judge_payload(
+    run: ObservedAgentRun,
+    plan: JudgePlan,
+    behavior_map: AgentBehaviorMap,
+    local_findings: list[HypothesisFinding],
+    *,
+    evidence_receipts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "task": (
+            "Act as a third-party reviewer of one agent trace. Infer what should have "
+            "happened from the codebase-derived behavior map, tool contracts, prompts, "
+            "Skills, routing, context policy, and guardrails. Compare that against what "
+            "actually happened in the observed trace. No ground truth is available, so "
+            "produce only evidence-backed hypotheses or abstain."
+        ),
+        "output_contract": HYPOTHESIS_JUDGE_OUTPUT_CONTRACT,
+        "observed_run": _compact_run(run),
+        "judge_plan": plan.to_dict(),
+        "behavior_map": _compact_behavior_map(behavior_map),
+        "local_findings": [finding.to_dict() for finding in local_findings],
+        "verified_evidence_receipts": evidence_receipts or [],
+        "evidence_policy": {
+            "raw_evidence_is_authoritative": True,
+            "receipt_quotes_must_match_archived_source": True,
+            "fallback_when_receipts_missing": "use observed_run compact fields and mark missing evidence explicitly",
+        },
+    }
 
 
 def _findings_from_judge_payload(

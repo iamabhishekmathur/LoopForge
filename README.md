@@ -303,6 +303,25 @@ redaction:
 
 The model-backed hypothesis judge receives the interpreted user intent, final response, tool sequence, execution steps, judge plan, local fallback findings, and compact codebase behavior map. It must either return evidence-cited findings or abstain. Weak local lexical intent findings are replaced by the model judgment; structural findings such as missing trace coverage and observed runtime errors are preserved.
 
+## Evidence Archive And Efficiency
+
+LoopForge keeps raw evidence authoritative before it asks any judge or reducer to summarize. Stored traces and spans can be archived as content-addressed evidence records, reduced into verified quote receipts, and measured for payload/cost efficiency:
+
+```bash
+loopforge evidence archive
+loopforge evidence list
+loopforge evidence show EV-...
+loopforge evidence reduce
+loopforge evidence receipts
+loopforge evidence receipt ER-...
+loopforge judge explain-payload TRACE_ID
+loopforge efficiency report
+```
+
+`evidence reduce` creates receipts that include the source evidence ID, source hash, exact quotes, reducer provenance, byte counts, compression ratio, and verification status. A receipt fails verification if any quote cannot be found in the archived source, the source hash changes, required fields are missing, or the receipt is not smaller than the source. `judge explain-payload` shows the exact compact payload a model hypothesis judge would receive, including verified evidence receipts when available.
+
+`efficiency report` estimates trace bytes, reduced bytes, token savings, receipt verification health, and cost-reduction gates. This is the first SoL-Pi-inspired layer: do not optimize prompts, judges, or trace payloads unless evidence remains verifiable and capability signals are preserved.
+
 ## Fast Adoption Path
 
 The first 30 minutes should prove LoopForge can inspect the repo, read traces, and draft evidence-backed artifacts without changing production behavior:

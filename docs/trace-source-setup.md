@@ -288,8 +288,12 @@ Run:
 loopforge connectors doctor
 loopforge readiness
 loopforge monitor --once --last 24h
+loopforge evidence archive
+loopforge evidence reduce
 loopforge judge run
 loopforge judge list
+loopforge judge explain-payload TRACE_ID
+loopforge efficiency report
 loopforge queue run-next
 loopforge issues list
 loopforge issues resolution-plan ISSUE-0001
@@ -300,7 +304,11 @@ Healthy first run:
 - `connectors doctor` reports at least one `ready` source.
 - `readiness` passes.
 - `monitor --once` reports nonzero `traces`.
+- `evidence archive` creates `EV-...` records for traces and spans.
+- `evidence reduce` creates verified `ER-...` quote receipts or fails clearly.
 - `judge list` either shows hypothesis findings or confirms the traces are sufficiently judgeable.
+- `judge explain-payload TRACE_ID` shows whether verified receipts are available to the model judge.
+- `efficiency report` shows receipt verification health, estimated token savings, and cost-reduction gates.
 - If failures recur, `issues list` shows at least one issue.
 - `issues resolution-plan ISSUE_ID` explains the likely root cause, candidate actions, and any evidence still needed before release.
 - `.loopforge/connectors/SOURCE_ID-sync.json` is written.

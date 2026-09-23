@@ -30,6 +30,7 @@ def test_init_creates_project_files(tmp_path: Path) -> None:
     assert (tmp_path / ".loopforge" / "agent-profile.md").is_file()
     assert (tmp_path / ".loopforge" / "issues").is_dir()
     assert (tmp_path / ".loopforge" / "connectors").is_dir()
+    assert (tmp_path / ".loopforge" / "evidence").is_dir()
     assert (tmp_path / ".loopforge" / "rollbacks").is_dir()
     assert (tmp_path / ".loopforge" / "setup" / "generic-recipe.md").is_file()
     assert "support-agent" in (tmp_path / "loopforge.yaml").read_text(encoding="utf-8")
@@ -99,6 +100,8 @@ def test_help_includes_discover_and_shadow(tmp_path: Path) -> None:
     assert "shadow" in result.stdout
     assert "monitor" in result.stdout
     assert "judge" in result.stdout
+    assert "evidence" in result.stdout
+    assert "efficiency" in result.stdout
     assert "queue" in result.stdout
     assert "learned" in result.stdout
     assert "redact" in result.stdout

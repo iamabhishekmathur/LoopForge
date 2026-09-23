@@ -15,6 +15,7 @@ LOCAL_DIRS = [
     "analysis",
     "cache",
     "connectors",
+    "evidence",
     "evals",
     "index",
     "issues",
