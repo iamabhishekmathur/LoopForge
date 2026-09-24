@@ -105,6 +105,18 @@ Generated: `{plan.generated_at}`
 
 
 def _observed_failure(issue: Issue) -> str:
+    source_finding = issue.metadata.get("source_finding")
+    if isinstance(source_finding, dict):
+        finding_metadata = source_finding.get("metadata")
+        actual = finding_metadata.get("actual_behavior") if isinstance(finding_metadata, dict) else None
+        expected = (
+            finding_metadata.get("expected_behavior")
+            if isinstance(finding_metadata, dict)
+            else None
+        )
+        if actual and expected:
+            return f"Expected: {expected}\n\nObserved: {actual}"
+        return str(source_finding.get("hypothesis") or issue.title)
     tools = issue.metadata.get("implicated_tools", [])
     tool_text = ", ".join(f"`{tool}`" for tool in tools) or "a side-effecting tool"
     return (
@@ -151,6 +163,12 @@ def _root_cause_rankings(
     artifacts: list[dict[str, Any]],
     contradictions: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    if issue.metadata.get("source") == "hypothesis_judge":
+        return sorted(
+            issue.root_cause_hypotheses,
+            key=lambda item: float(item.get("confidence", 0)),
+            reverse=True,
+        )
     has_policy_contradiction = any(
         item.get("label") == "policy_requires_confirmation_but_trace_lacks_approval"
         for item in contradictions
@@ -216,6 +234,19 @@ def _candidate_actions(
     contradictions: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     actions: list[dict[str, Any]] = []
+    source_finding = issue.metadata.get("source_finding")
+    if isinstance(source_finding, dict):
+        recommended = source_finding.get("recommended_next_action")
+        if recommended:
+            actions.append(
+                {
+                    "label": "investigate_model_hypothesis",
+                    "priority": 1,
+                    "owner": "agent engineer",
+                    "status": "needs_human_review",
+                    "action": str(recommended),
+                }
+            )
     tools = ", ".join(str(tool) for tool in issue.metadata.get("implicated_tools", [])) or "the implicated tool"
     if contradictions:
         actions.append(
@@ -300,6 +331,11 @@ def _evidence_needed(
     blockers: list[dict[str, Any]],
 ) -> list[str]:
     needed = []
+    source_finding = issue.metadata.get("source_finding")
+    if isinstance(source_finding, dict):
+        missing = source_finding.get("missing_evidence")
+        if isinstance(missing, list):
+            needed.extend(f"Collect evidence for `{item}`." for item in missing)
     if contradictions:
         needed.append("Runtime evidence that the permission policy is enforced before the tool call.")
         needed.append("Trace evidence showing whether confirmed flows emit `human_approval` spans.")

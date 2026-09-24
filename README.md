@@ -283,7 +283,7 @@ loopforge judge list
 loopforge judge show HF-...
 ```
 
-The hypothesis judge builds an observed-agent-run view from each trace, builds a behavior map from indexed prompts, tools, Skills, routing policy, context policy, and guardrails, then plans judge tasks such as intent alignment, tool selection, clarification need, final-answer faithfulness, and guardrail adherence.
+The hypothesis judge builds an observed-agent-run view from each trace, builds a behavior map from indexed prompts, tools, Skills, routing policy, context policy, and guardrails, then plans judge tasks such as intent alignment, tool selection, clarification need, final-answer faithfulness, and guardrail adherence. It preserves the initiating user request separately from later clarification forms. Framework pause signals such as LangGraph interrupts remain visible as interaction events but are not treated as runtime failures.
 
 Findings are intentionally phrased as hypotheses, not ground-truth verdicts. If a trace lacks the initial user input, selected route/tool, guardrail verdict, or final assistant response, LoopForge creates an `insufficient_trace_coverage` finding instead of pretending it can judge behavior. This is the expected first result for partial telemetry such as isolated downstream execution spans.
 
@@ -306,7 +306,9 @@ redaction:
   external_llm_allowed: true
 ```
 
-The model-backed hypothesis judge receives the interpreted user intent, final response, tool sequence, execution steps, judge plan, local fallback findings, and compact codebase behavior map. It must either return evidence-cited findings or abstain. Weak local lexical intent findings are replaced by the model judgment; structural findings such as missing trace coverage and observed runtime errors are preserved.
+The model-backed hypothesis judge receives the interpreted user intent, final response, tool sequence, execution steps, judge plan, local fallback findings, and compact codebase behavior map. It must either return evidence-cited findings or abstain. Weak local lexical intent findings are replaced by the model judgment; genuine structural findings such as missing trace coverage and runtime failures are preserved.
+
+Findings cross into the issue/eval/resolution loop only when they pass the promotion gate: model-backed provenance, confidence of at least `0.80`, judgeability of at least `0.60`, supported finding type, expected-versus-actual behavior, and both trace and codebase evidence. Qualified findings create a reviewable issue, a drafted probabilistic evaluator, a non-blocking calibration record, and a resolution plan. Local or weak findings remain hypotheses and cannot trigger patches or gates.
 
 ## Evidence Archive And Efficiency
 

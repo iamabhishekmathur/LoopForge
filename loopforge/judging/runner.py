@@ -17,6 +17,8 @@ from loopforge.judging.behavior_map import build_behavior_map
 from loopforge.judging.hypothesis import judge_hypotheses
 from loopforge.judging.interpreter import interpret_trace
 from loopforge.judging.planner import plan_judges
+from loopforge.judging.promotion import promote_findings
+from loopforge.issues.materialize import materialize_issues
 from loopforge.traces.stitcher import stitch_traces
 from loopforge.traces.quality import is_analysis_eligible_trace
 
@@ -27,6 +29,10 @@ class JudgeRunResult:
     behavior_artifact_count: int
     finding_count: int
     stored_count: int
+    promoted_issue_count: int = 0
+    eval_count: int = 0
+    validation_count: int = 0
+    resolution_count: int = 0
 
 
 def run_hypothesis_judging(
@@ -76,6 +82,14 @@ def run_hypothesis_judging(
             ):
                 store.upsert_hypothesis_finding(finding.to_dict())
                 findings.append(finding)
+        promoted_issues = promote_findings(findings)
+        materialized = materialize_issues(
+            root,
+            store,
+            promoted_issues,
+            traces,
+            source="hypothesis_judge",
+        )
     finally:
         store.close()
     return JudgeRunResult(
@@ -83,4 +97,8 @@ def run_hypothesis_judging(
         behavior_artifact_count=len(artifacts),
         finding_count=len(findings),
         stored_count=len(findings),
+        promoted_issue_count=materialized.issue_count,
+        eval_count=materialized.eval_count,
+        validation_count=materialized.validation_count,
+        resolution_count=materialized.resolution_count,
     )

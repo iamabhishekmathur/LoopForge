@@ -2,23 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 
 from loopforge.adapters.registry import read_traces
 from loopforge.adapters.sync import trace_window_start
-from loopforge.analysis.judge import write_diagnosis
 from loopforge.config import configured_issue_judge
 from loopforge.db import Store
 from loopforge.discovery.manifest import build_runtime_manifest, write_runtime_manifest
 from loopforge.discovery.scanner import discover_harness_artifacts, write_harness_index
-from loopforge.evals.artifacts import write_eval_artifacts
-from loopforge.evals.generator import generate_eval_for_issue
-from loopforge.evals.validator import validate_evaluator
+from loopforge.issues.materialize import materialize_issues
 from loopforge.issues.miner import mine_issues
-from loopforge.issues.report import write_issue_report
-from loopforge.issues.resolution import build_resolution_plan, write_resolution_plan
 from loopforge.state.graph import build_harness_state_snapshot, write_harness_state_snapshot
 from loopforge.trajectories.builder import build_trajectory
 from loopforge.traces.stitcher import stitch_traces
@@ -72,80 +66,14 @@ def run_shadow_pipeline(
             store.upsert_trajectory(trajectory.to_dict())
 
         issues = mine_issues(traces, trajectories, artifacts, judge=configured_issue_judge(root))
-        reports = []
-        eval_count = 0
-        validation_count = 0
-        resolution_count = 0
-        for issue in issues:
-            diagnosis_payload = issue.metadata.get("diagnosis")
-            if isinstance(diagnosis_payload, dict):
-                from loopforge.analysis.authorization import diagnosis_from_dict
-
-                diagnosis_path = write_diagnosis(root, diagnosis_from_dict(diagnosis_payload))
-                issue = replace(
-                    issue,
-                    metadata={
-                        **issue.metadata,
-                        "diagnosis_artifact": diagnosis_path.relative_to(root).as_posix(),
-                    },
-                )
-            generated = generate_eval_for_issue(issue, traces)
-            if generated is not None:
-                eval_example, evaluator = generated
-                validation = validate_evaluator(issue, evaluator, traces)
-                eval_paths = write_eval_artifacts(root, eval_example, evaluator, validation)
-                store.upsert_eval_example(eval_example.to_dict())
-                store.upsert_evaluator_definition(evaluator.to_dict())
-                store.upsert_evaluator_validation_record(validation.to_dict())
-                eval_count += 1
-                validation_count += 1
-                issue = replace(
-                    issue,
-                    metadata={
-                        **issue.metadata,
-                        "eval_artifacts": [
-                            {
-                                "kind": "eval",
-                                "path": eval_paths["eval"].relative_to(root).as_posix(),
-                                "status": eval_example.status,
-                            },
-                            {
-                                "kind": "evaluator",
-                                "path": eval_paths["evaluator"].relative_to(root).as_posix(),
-                                "status": evaluator.status,
-                            },
-                            {
-                                "kind": "validation",
-                                "path": eval_paths["validation"].relative_to(root).as_posix(),
-                                "status": validation.validation_status,
-                            },
-                        ],
-                    },
-                )
-            issue_dict = issue.to_dict()
-            store.upsert_issue(issue_dict)
-            issue_artifacts = issue.metadata.get("implicated_artifacts", [])
-            plan = build_resolution_plan(
-                issue,
-                artifacts=issue_artifacts if isinstance(issue_artifacts, list) else [],
-                evals=store.list_evals_for_issue(issue.issue_id),
-                validations=store.list_validations_for_issue(issue.issue_id),
-            )
-            plan_paths = write_resolution_plan(root, plan)
-            store.upsert_resolution_plan(plan.to_dict())
-            resolution_count += 1
-            store.add_issue_event(
-                {
-                    "schema_version": "1",
-                    "event_id": f"{issue.issue_id}-opened",
-                    "issue_id": issue.issue_id,
-                    "event_type": "opened",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "metadata": {"source": "shadow", "window": window},
-                }
-            )
-            reports.append(write_issue_report(root, issue))
-            reports.append(plan_paths["markdown"])
+        materialized = materialize_issues(
+            root,
+            store,
+            issues,
+            traces,
+            source="shadow",
+            window=window,
+        )
     finally:
         store.close()
 
@@ -156,8 +84,8 @@ def run_shadow_pipeline(
         trajectory_count=len(trajectories),
         artifact_count=len(artifacts),
         issue_count=len(issues),
-        eval_count=eval_count,
-        validation_count=validation_count,
-        resolution_count=resolution_count,
-        report_paths=reports,
+        eval_count=materialized.eval_count,
+        validation_count=materialized.validation_count,
+        resolution_count=materialized.resolution_count,
+        report_paths=materialized.report_paths,
     )

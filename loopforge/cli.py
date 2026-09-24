@@ -755,6 +755,10 @@ def command_judge_run(args: argparse.Namespace) -> int:
     print(f"  traces: {result.trace_count}")
     print(f"  behavior_artifacts: {result.behavior_artifact_count}")
     print(f"  findings: {result.finding_count}")
+    print(f"  promoted_issues: {result.promoted_issue_count}")
+    print(f"  evals: {result.eval_count}")
+    print(f"  validations: {result.validation_count}")
+    print(f"  resolutions: {result.resolution_count}")
     return 0
 
 

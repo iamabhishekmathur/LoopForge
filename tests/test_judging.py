@@ -10,7 +10,9 @@ from loopforge.judging.behavior_map import build_behavior_map
 from loopforge.judging.interpreter import interpret_trace
 from loopforge.judging.model_judge import OpenAICompatibleHypothesisJudge
 from loopforge.judging.planner import plan_judges
+from loopforge.judging.promotion import promote_findings, promotable_finding
 from loopforge.models.harness import HarnessArtifact
+from loopforge.models.hypothesis import HypothesisFinding
 from loopforge.models.trace import Trace
 from loopforge.traces.stitcher import stitch_traces
 from loopforge.traces.quality import is_analysis_eligible_trace
@@ -39,6 +41,67 @@ def test_legacy_partial_langsmith_trace_is_not_analysis_eligible() -> None:
         is True
     )
     assert is_analysis_eligible_trace({"trace_id": "jsonl-1", "metadata": {}}) is True
+
+
+def test_weak_local_hypothesis_cannot_be_promoted() -> None:
+    finding = HypothesisFinding(
+        finding_id="HF-weak",
+        trace_id="trace-1",
+        finding_type="possible_intent_mismatch",
+        title="Possible mismatch",
+        hypothesis="Weak lexical overlap.",
+        severity="low",
+        confidence=0.58,
+        judgeability_score=0.86,
+        supporting_trace_evidence=[{"kind": "user_intent", "value": "cancel"}],
+        supporting_codebase_evidence=[],
+        missing_evidence=[],
+        recommended_next_action="Review it.",
+        metadata={"judge": "local"},
+    )
+
+    eligible, reasons = promotable_finding(finding)
+
+    assert eligible is False
+    assert "finding is not model-backed" in reasons
+    assert promote_findings([finding]) == []
+
+
+def test_model_finding_cannot_promote_with_loopforge_fallback_citations() -> None:
+    finding = HypothesisFinding(
+        finding_id="HF-uncited",
+        trace_id="trace-1",
+        finding_type="tool_selection_mismatch",
+        title="Wrong tool",
+        hypothesis="The selected tool did not serve the request.",
+        severity="medium",
+        confidence=0.91,
+        judgeability_score=0.88,
+        supporting_trace_evidence=[{"kind": "tool_calls", "value": ["weather"]}],
+        supporting_codebase_evidence=[
+            {
+                "contract_type": "routing_policy",
+                "source_path": "router.md",
+                "summary": "Route billing questions to billing.",
+                "confidence": 0.9,
+            }
+        ],
+        missing_evidence=[],
+        recommended_next_action="Review routing.",
+        metadata={
+            "judge": "json_file",
+            "expected_behavior": "Use billing.",
+            "actual_behavior": "Used weather.",
+            "model_supplied_trace_evidence": False,
+            "model_supplied_codebase_evidence": False,
+        },
+    )
+
+    eligible, reasons = promotable_finding(finding)
+
+    assert eligible is False
+    assert "trace evidence was not explicitly cited by the model" in reasons
+    assert "codebase evidence was not explicitly cited by the model" in reasons
 
 
 def run_loopforge(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -84,6 +147,75 @@ def test_interpreter_scores_full_agent_trace_as_more_judgeable() -> None:
     assert observed.judgeability_score >= 0.5
     assert "user_intent" in observed.available_evidence
     assert "final_response" in observed.available_evidence
+
+
+def test_interpreter_prefers_original_intent_over_clarification_form() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_clarification",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_query": "deposit account early attrition risk list"},
+            "outputs": {
+                "agentic_run_state": {
+                    "original_question": "deposit account early attrition risk list",
+                },
+                "clarification_query": "Collect an optional branch filter",
+                "user_questions": [
+                    {
+                        "question": "Filter results to a specific branch?",
+                        "options": ["All", "420"],
+                    }
+                ],
+                "goto": "agentic_human",
+            },
+            "spans": [
+                {
+                    "span_id": "human-1",
+                    "type": "application",
+                    "name": "human_input",
+                    "started_at": "2026-09-21T00:00:01Z",
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.user_intent == "deposit account early attrition risk list"
+    assert observed.final_response == "Filter results to a specific branch?"
+
+
+def test_interpreter_models_graph_interrupt_as_control_flow_not_error() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_interrupt",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_query": "show attrition risk"},
+            "outputs": {"clarification_query": "Choose a branch"},
+            "spans": [
+                {
+                    "span_id": "human-1",
+                    "type": "application",
+                    "name": "human_input",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "error": "GraphInterrupt((Interrupt(value='Choose a branch'),))",
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.errors == []
+    assert "errors" not in observed.available_evidence
+    assert "control_flow_events" in observed.available_evidence
+    assert observed.steps[0].error is None
+    assert observed.steps[0].metadata["event_semantics"]["event_type"] == (
+        "human_interaction_pause"
+    )
+    assert "GraphInterrupt" in observed.steps[0].metadata["raw_error"]
 
 
 def test_interpreter_extracts_langchain_tuple_messages() -> None:
@@ -636,9 +768,26 @@ def test_recorded_hypothesis_judge_replaces_weak_local_intent_gap(tmp_path: Path
     assert shadow.returncode == 0, shadow.stderr
     assert judge.returncode == 0, judge.stderr
     assert "findings: 1" in judge.stdout
+    assert "promoted_issues: 1" in judge.stdout
+    assert "evals: 1" in judge.stdout
+    assert "validations: 1" in judge.stdout
+    assert "resolutions: 1" in judge.stdout
     assert findings.returncode == 0, findings.stderr
     assert "tool_selection_mismatch" in findings.stdout
     assert "possible_intent_mismatch" not in findings.stdout
+    issue_files = list((project / ".loopforge" / "issues").glob("ISSUE-*.md"))
+    eval_files = list((project / ".loopforge" / "evals").glob("EVAL-*.json"))
+    validation_files = list(
+        (project / ".loopforge" / "evals").glob("EVALUATOR-*-validation.json")
+    )
+    resolution_files = list((project / ".loopforge" / "resolutions").glob("RESOLVE-*.json"))
+    assert len(issue_files) == 1
+    assert len(eval_files) == 1
+    assert len(validation_files) == 1
+    assert len(resolution_files) == 1
+    validation = json.loads(validation_files[0].read_text(encoding="utf-8"))
+    assert validation["validation_status"] == "needs_model_calibration"
+    assert validation["blocking_gate_eligible"] is False
 
 
 def test_live_hypothesis_judge_requires_external_llm_opt_in(tmp_path: Path) -> None:

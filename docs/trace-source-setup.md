@@ -376,7 +376,9 @@ redaction:
   external_llm_allowed: true
 ```
 
-The model-backed hypothesis judge replaces weak local lexical findings, while LoopForge preserves structural findings such as missing trace coverage and observed runtime errors. This keeps the default path conservative and makes stronger model judgment an explicit opt-in.
+The model-backed hypothesis judge replaces weak local lexical findings, while LoopForge preserves genuine structural findings such as missing trace coverage and runtime failures. Expected framework control-flow events, including LangGraph interaction interrupts, remain available as evidence but are not classified as failures. LoopForge also preserves the initiating user request separately from later clarification forms.
+
+A finding is promoted into the issue/eval/resolution loop only when it is model-backed, has confidence of at least `0.80`, has judgeability of at least `0.60`, includes expected and actual behavior, and cites both trace and codebase evidence. The drafted probabilistic evaluator remains non-blocking with `needs_model_calibration` status until labeled positive, negative, and abstention examples validate it. Weak and local findings remain hypotheses only.
 
 ## Common Problems
 

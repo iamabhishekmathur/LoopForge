@@ -20,6 +20,33 @@ def validate_evaluator(
     positives = [trace for trace in traces if trace.trace_id in positive_ids]
     negatives = [trace for trace in traces if trace.trace_id not in positive_ids]
 
+    if evaluator.evaluator_type == "probabilistic_model_judge":
+        return EvaluatorValidationRecord(
+            evaluator_id=evaluator.evaluator_id,
+            failure_mode_id=evaluator.failure_mode_id,
+            ontology_version=evaluator.ontology_version,
+            evaluator_type=evaluator.evaluator_type,
+            output_type=evaluator.output_type,
+            validation_status="needs_model_calibration",
+            blocking_gate_eligible=False,
+            positive_examples=[trace.trace_id for trace in positives],
+            negative_examples=[trace.trace_id for trace in negatives],
+            minimum_sample_size_met=(
+                len(positives) >= MIN_POSITIVE_EXAMPLES
+                and len(negatives) >= MIN_NEGATIVE_EXAMPLES
+            ),
+            evidence_sources=["trace_evidence", "codebase_contracts", "model_hypothesis"],
+            metadata={
+                "positive_count": len(positives),
+                "negative_count": len(negatives),
+                "calibration_required": True,
+                "reason": (
+                    "A probabilistic evaluator must be calibrated on labeled positives, "
+                    "negatives, and abstentions before it can block a gate."
+                ),
+            },
+        )
+
     positive_predictions = [_evaluator_detects_failure(evaluator, trace) for trace in positives]
     negative_predictions = [_evaluator_detects_failure(evaluator, trace) for trace in negatives]
 

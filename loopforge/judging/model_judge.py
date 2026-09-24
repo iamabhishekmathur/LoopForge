@@ -279,10 +279,16 @@ def _finding_from_raw(
         return None
     finding_type = str(raw.get("finding_type") or raw.get("type") or "model_hypothesis")
     title = str(raw.get("title") or finding_type.replace("_", " ").title())
-    supporting_codebase_evidence = raw.get("supporting_codebase_evidence")
+    raw_codebase_evidence = raw.get("supporting_codebase_evidence")
+    model_supplied_codebase_evidence = (
+        isinstance(raw_codebase_evidence, list) and bool(raw_codebase_evidence)
+    )
+    supporting_codebase_evidence = raw_codebase_evidence
     if not isinstance(supporting_codebase_evidence, list):
         supporting_codebase_evidence = _codebase_evidence(behavior_map)
-    supporting_trace_evidence = raw.get("supporting_trace_evidence")
+    raw_trace_evidence = raw.get("supporting_trace_evidence")
+    model_supplied_trace_evidence = isinstance(raw_trace_evidence, list) and bool(raw_trace_evidence)
+    supporting_trace_evidence = raw_trace_evidence
     if not isinstance(supporting_trace_evidence, list):
         supporting_trace_evidence = _default_trace_evidence(run)
     metadata = {
@@ -292,6 +298,8 @@ def _finding_from_raw(
         "actual_behavior": raw.get("actual_behavior"),
         "violated_contracts": raw.get("violated_contracts") or [],
         "false_positive_risks": raw.get("false_positive_risks") or [],
+        "model_supplied_trace_evidence": model_supplied_trace_evidence,
+        "model_supplied_codebase_evidence": model_supplied_codebase_evidence,
         **extra_metadata,
     }
     return HypothesisFinding(

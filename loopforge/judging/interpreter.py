@@ -27,6 +27,14 @@ USER_INTENT_KEYS = (
     "message",
     "messages",
 )
+ORIGINAL_USER_INTENT_KEYS = (
+    "original_user_query",
+    "original_question",
+    "initial_user_query",
+    "initial_query",
+    "original_request",
+    "verbatim_user_query",
+)
 EXPLICIT_USER_INTENT_KEYS = (
     "_loopforge_stitched_user_intent",
     "user_intent",
@@ -35,7 +43,6 @@ EXPLICIT_USER_INTENT_KEYS = (
     "user_message",
     "user_query",
     "user_question",
-    "user_questions",
 )
 FINAL_RESPONSE_KEYS = (
     "_loopforge_stitched_final_response",
@@ -48,6 +55,12 @@ FINAL_RESPONSE_KEYS = (
     "content",
     "message",
 )
+INTERACTION_RESPONSE_KEYS = ("question", "clarification_query")
+EXPECTED_CONTROL_FLOW_EXCEPTIONS = {
+    "GraphInterrupt",
+    "Interrupt",
+    "NodeInterrupt",
+}
 TOOLISH_TYPES = {"tool_call", "router", "retriever", "application"}
 
 
@@ -55,22 +68,39 @@ def interpret_trace(trace: Trace) -> ObservedAgentRun:
     user_intent = _extract_user_intent(trace)
     final_response = _extract_final_response(trace)
     tool_calls = _extract_tool_calls(trace.spans)
-    steps = [
-        ObservedStep(
-            step_id=span.span_id,
-            name=span.name,
-            step_type=span.type,
-            input_preview=_preview(span.input),
-            output_preview=_preview(span.output),
-            error=span.error,
-            metadata={
-                "side_effect_class": span.side_effect_class,
-                "raw_type": span.metadata.get("raw_type"),
-            },
+    steps = []
+    runtime_errors: list[str] = []
+    control_flow_events: list[dict[str, Any]] = []
+    for span in trace.spans:
+        event = _expected_control_flow_event(span)
+        if event:
+            control_flow_events.append({"step_id": span.span_id, "name": span.name, **event})
+        elif span.error:
+            runtime_errors.append(str(span.error))
+        steps.append(
+            ObservedStep(
+                step_id=span.span_id,
+                name=span.name,
+                step_type=span.type,
+                input_preview=_preview(span.input),
+                output_preview=_preview(span.output),
+                error=None if event else span.error,
+                metadata={
+                    "side_effect_class": span.side_effect_class,
+                    "raw_type": span.metadata.get("raw_type"),
+                    "event_semantics": event,
+                    "raw_error": span.error if event else None,
+                },
+            )
         )
-        for span in trace.spans
-    ]
-    available = _available_evidence(trace, user_intent, final_response, tool_calls)
+    available = _available_evidence(
+        trace,
+        user_intent,
+        final_response,
+        tool_calls,
+        runtime_errors,
+        control_flow_events,
+    )
     missing = _missing_evidence(available)
     return ObservedAgentRun(
         trace_id=trace.trace_id,
@@ -79,7 +109,7 @@ def interpret_trace(trace: Trace) -> ObservedAgentRun:
         final_response=final_response,
         tool_calls=tool_calls,
         steps=steps,
-        errors=[str(span.error) for span in trace.spans if span.error],
+        errors=runtime_errors,
         available_evidence=available,
         missing_evidence=missing,
         judgeability_score=_judgeability_score(available),
@@ -88,11 +118,30 @@ def interpret_trace(trace: Trace) -> ObservedAgentRun:
             "session_id": trace.session_id,
             "source_type": trace.metadata.get("source_type"),
             "source_id": trace.metadata.get("source_id"),
+            "control_flow_events": control_flow_events,
         },
     )
 
 
 def _extract_user_intent(trace: Trace) -> str | None:
+    all_candidates: list[Any] = [trace.inputs, trace.outputs]
+    all_candidates.extend(span.input for span in trace.spans)
+    all_candidates.extend(span.output for span in trace.spans)
+    for key in ORIGINAL_USER_INTENT_KEYS:
+        values: list[str] = []
+        for candidate in all_candidates:
+            values.extend(_find_text_values(candidate, (key,)))
+        selected = _select_user_intent(values)
+        if selected:
+            return selected
+
+    root_explicit_texts: list[str] = []
+    for candidate in (trace.inputs, trace.outputs):
+        root_explicit_texts.extend(_find_text_values(candidate, EXPLICIT_USER_INTENT_KEYS))
+    selected = _select_user_intent(root_explicit_texts)
+    if selected:
+        return selected
+
     candidates: list[Any] = [trace.inputs]
     candidates.extend(span.input for span in trace.spans)
     explicit_texts: list[str] = []
@@ -129,6 +178,12 @@ def _extract_final_response(trace: Trace) -> str | None:
         value = _find_text(candidate, FINAL_RESPONSE_KEYS)
         if value and not _looks_like_tabular_payload(value):
             final_candidates.append(value)
+    interaction_candidates: list[str] = []
+    for key in INTERACTION_RESPONSE_KEYS:
+        interaction_candidates.extend(_find_text_values(trace.outputs, (key,)))
+    interaction_response = _select_final_response(interaction_candidates)
+    if interaction_response:
+        final_candidates.append(interaction_response)
     return _select_final_response(final_candidates)
 
 
@@ -145,6 +200,8 @@ def _available_evidence(
     user_intent: str | None,
     final_response: str | None,
     tool_calls: list[str],
+    runtime_errors: list[str],
+    control_flow_events: list[dict[str, Any]],
 ) -> list[str]:
     evidence = []
     if user_intent:
@@ -155,8 +212,10 @@ def _available_evidence(
         evidence.append("tool_calls")
     if trace.spans:
         evidence.append("execution_steps")
-    if any(span.error for span in trace.spans):
+    if runtime_errors:
         evidence.append("errors")
+    if control_flow_events:
+        evidence.append("control_flow_events")
     if _has_sql(trace):
         evidence.append("generated_query")
     if any(_guardrail_signal(span) for span in trace.spans):
@@ -474,7 +533,24 @@ def _looks_like_internal_state_payload(text: str) -> bool:
         or '"artifact_store"' in lowered
         or '"app_context_gathered_info"' in lowered
         or '"app_generation_context"' in lowered
+        or '"goto": "agentic_human"' in lowered
+        or '"agentic_run_state"' in lowered
     )
+
+
+def _expected_control_flow_event(span: Span) -> dict[str, Any] | None:
+    if not span.error:
+        return None
+    first_line = str(span.error).lstrip().splitlines()[0]
+    exception_name = first_line.partition("(")[0].strip().rsplit(".", 1)[-1]
+    if exception_name not in EXPECTED_CONTROL_FLOW_EXCEPTIONS:
+        return None
+    return {
+        "category": "expected_control_flow",
+        "event_type": "human_interaction_pause",
+        "framework_signal": exception_name,
+        "confidence": 0.99,
+    }
 
 
 def _has_sql(trace: Trace) -> bool:
