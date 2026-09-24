@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
+import re
 
 from loopforge.models.sync import TraceSyncState
 from loopforge.models.trace import Trace
@@ -36,9 +37,13 @@ def update_sync_state_from_traces(
     source_type: str,
     traces: list[Trace],
     cursor: str | None = None,
+    prior_state: TraceSyncState | None = None,
 ) -> TraceSyncState:
-    high_watermark = max((trace.started_at for trace in traces), default=None)
-    last_trace_id = traces[-1].trace_id if traces else None
+    high_watermark = max(
+        (trace.started_at for trace in traces),
+        default=prior_state.high_watermark_started_at if prior_state else None,
+    )
+    last_trace_id = traces[-1].trace_id if traces else (prior_state.last_trace_id if prior_state else None)
     state = TraceSyncState(
         source_id=source_id,
         source_type=source_type,
@@ -55,3 +60,34 @@ def update_sync_state_from_traces(
     )
     write_sync_state(root, state)
     return state
+
+
+def trace_window_start(window: str, now: datetime | None = None) -> str:
+    match = re.fullmatch(
+        r"\s*(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\s*",
+        window.lower(),
+    )
+    if not match:
+        raise ValueError(f"unsupported trace window {window!r}; use values such as 30m, 24h, or 7d")
+    amount = int(match.group(1))
+    unit = match.group(2)
+    if unit.startswith("s"):
+        delta = timedelta(seconds=amount)
+    elif unit.startswith("m"):
+        delta = timedelta(minutes=amount)
+    elif unit.startswith("h"):
+        delta = timedelta(hours=amount)
+    else:
+        delta = timedelta(days=amount)
+    current = now or datetime.now(UTC)
+    return (current - delta).isoformat()
+
+
+def overlapped_watermark(value: str | None, minutes: int = 10) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    return (parsed - timedelta(minutes=max(minutes, 0))).isoformat()

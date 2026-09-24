@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import base64
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+import time
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
@@ -66,18 +67,35 @@ class HostedTraceAdapter(TraceAdapter):
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception as exc:
             raise ValueError(f"{path}: invalid hosted trace fixture: {exc}") from exc
-        return normalize_provider_payload(self.source_type, payload, self.source_id)
+        traces = normalize_provider_payload(self.source_type, payload, self.source_id)
+        if self.source_type != "langsmith":
+            return traces
+        return [
+            replace(
+                trace,
+                metadata={
+                    **trace.metadata,
+                    "tree_fetch_complete": True,
+                    "provider_run_count": len(trace.spans),
+                    "fixture_snapshot": True,
+                },
+            )
+            for trace in traces
+        ]
 
     def _fetch_payload(self) -> Any:
+        if self.source_type == "langsmith":
+            return self._fetch_complete_langsmith_traces()
+
         endpoint = self._endpoint()
         payload = self._fetch_page(endpoint)
         if not self._should_paginate():
-            return self._hydrate_langsmith_payload(payload)
+            return payload
 
         combined = payload
         seen_cursors: set[str] = set()
         next_cursor = _next_cursor(payload)
-        max_pages = int(self.settings.get("max_pages", "5"))
+        max_pages = int(self.settings.get("max_pages", "100"))
         page_count = 1
         while next_cursor and next_cursor not in seen_cursors and page_count < max_pages:
             seen_cursors.add(next_cursor)
@@ -85,7 +103,109 @@ class HostedTraceAdapter(TraceAdapter):
             combined = _merge_payloads(combined, page)
             next_cursor = _next_cursor(page)
             page_count += 1
-        return self._hydrate_langsmith_payload(combined)
+        if next_cursor and next_cursor not in seen_cursors:
+            raise ValueError(
+                f"{self.source_id}: pagination stopped at max_pages={max_pages} before the "
+                "provider result was exhausted"
+            )
+        return combined
+
+    def _fetch_complete_langsmith_traces(self) -> Any:
+        """List LangSmith roots, then fetch and validate every selected trace tree."""
+        endpoint = self._endpoint()
+        trace_limit = _int_or_none(self.settings.get("limit")) or 25
+        max_pages = int(self.settings.get("max_pages", "100"))
+        root_body = self._request_body() or {}
+        root_body["is_root"] = True
+        root_body["limit"] = trace_limit
+        root_body.pop("trace", None)
+
+        root_runs: list[dict[str, Any]] = []
+        seen_root_ids: set[str] = set()
+        seen_cursors: set[str] = set()
+        cursor = root_body.pop("cursor", None)
+        page_count = 0
+        while len(root_runs) < trace_limit:
+            page_body = dict(root_body)
+            if cursor:
+                page_body["cursor"] = cursor
+            page = self._fetch_post_body(endpoint, page_body)
+            page_count += 1
+            for record in _extract_records(page):
+                if not isinstance(record, dict):
+                    continue
+                trace_id = _langsmith_trace_id(record)
+                if trace_id in seen_root_ids:
+                    continue
+                seen_root_ids.add(trace_id)
+                root_runs.append(record)
+                if len(root_runs) >= trace_limit:
+                    break
+            next_cursor = _next_cursor(page)
+            if len(root_runs) >= trace_limit or not next_cursor:
+                break
+            if next_cursor in seen_cursors:
+                raise ValueError(
+                    f"{self.source_id}: LangSmith root listing repeated cursor {next_cursor!r}"
+                )
+            if page_count >= max_pages:
+                raise ValueError(
+                    f"{self.source_id}: LangSmith root listing stopped at max_pages={max_pages} "
+                    f"before {trace_limit} traces were selected"
+                )
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+
+        complete_runs: list[dict[str, Any]] = []
+        session_ids = root_body.get("session")
+        for root in root_runs:
+            trace_id = _langsmith_trace_id(root)
+            trace_body: dict[str, Any] = {"trace": trace_id}
+            if session_ids:
+                trace_body["session"] = session_ids
+            tree_payload = self._fetch_all_post_pages(endpoint, trace_body, max_pages=max_pages)
+            tree_runs = [record for record in _extract_records(tree_payload) if isinstance(record, dict)]
+            _validate_complete_langsmith_tree(self.source_id, trace_id, tree_runs)
+            for run in tree_runs:
+                copied = dict(run)
+                if _langsmith_run_id(copied) == trace_id:
+                    copied["_loopforge_tree_fetch_complete"] = True
+                    copied["_loopforge_provider_run_count"] = len(tree_runs)
+                complete_runs.append(copied)
+        return {"runs": complete_runs}
+
+    def _fetch_all_post_pages(
+        self,
+        endpoint: str,
+        body: dict[str, Any],
+        *,
+        max_pages: int,
+    ) -> Any:
+        combined: Any = {"runs": []}
+        seen_cursors: set[str] = set()
+        cursor: str | None = None
+        page_count = 0
+        while True:
+            page_body = dict(body)
+            if cursor:
+                page_body["cursor"] = cursor
+            page = self._fetch_post_body(endpoint, page_body)
+            combined = _merge_payloads(combined, page)
+            page_count += 1
+            next_cursor = _next_cursor(page)
+            if not next_cursor:
+                return combined
+            if next_cursor in seen_cursors:
+                raise ValueError(
+                    f"{self.source_id}: LangSmith trace hydration repeated cursor {next_cursor!r}"
+                )
+            if page_count >= max_pages:
+                raise ValueError(
+                    f"{self.source_id}: LangSmith trace hydration stopped at max_pages={max_pages} "
+                    "before the trace tree was exhausted"
+                )
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
 
     def _fetch_page(self, endpoint: str, cursor_override: str | None = None) -> Any:
         headers = {"Accept": "application/json"}
@@ -114,35 +234,22 @@ class HostedTraceAdapter(TraceAdapter):
             headers=headers,
             method="POST",
         )
-        try:
-            with urlopen(request, timeout=float(self.settings.get("timeout_seconds", "30"))) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except Exception as exc:
-            raise ValueError(
-                f"{self.source_id}: failed to fetch hosted traces: {_http_error_message(exc)}"
-            ) from exc
-
-    def _hydrate_langsmith_payload(self, payload: Any) -> Any:
-        if self.source_type != "langsmith":
-            return payload
-        if self.settings.get("hydrate_traces", "true").lower() == "false":
-            return payload
-        records = _extract_records(payload)
-        trace_ids = _langsmith_trace_ids(records)
-        if not trace_ids:
-            return payload
-
-        max_traces = int(self.settings.get("hydrate_max_traces") or min(len(trace_ids), 20))
-        run_limit = _int_or_none(self.settings.get("hydrate_run_limit")) or 100
-        combined = payload
-        endpoint = self._endpoint()
-        base_body = self._request_body() or {}
-        base_body.pop("cursor", None)
-        base_body["limit"] = run_limit
-        for trace_id in trace_ids[:max_traces]:
-            body = {**base_body, "trace": trace_id}
-            combined = _merge_payloads(combined, self._fetch_post_body(endpoint, body))
-        return combined
+        retries = int(self.settings.get("rate_limit_retries", "4"))
+        for attempt in range(retries + 1):
+            try:
+                with urlopen(
+                    request,
+                    timeout=float(self.settings.get("timeout_seconds", "30")),
+                ) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except Exception as exc:
+                if _http_status(exc) == 429 and attempt < retries:
+                    time.sleep(_retry_delay_seconds(exc, attempt, self.settings))
+                    continue
+                raise ValueError(
+                    f"{self.source_id}: failed to fetch hosted traces: {_http_error_message(exc)}"
+                ) from exc
+        raise AssertionError("unreachable")
 
     def _endpoint(self, cursor_override: str | None = None) -> str:
         if self.settings.get("url"):
@@ -340,6 +447,9 @@ def _normalize_langsmith_runs(records: list[Any], source_id: str) -> list[Trace]
                 "source_type": "langsmith",
                 "record_shape": "runs_query",
                 "run_count": len(sorted_runs),
+                "tree_fetch_complete": bool(root_run.get("_loopforge_tree_fetch_complete")),
+                "provider_run_count": root_run.get("_loopforge_provider_run_count"),
+                "trace_state": "complete" if _ended_at(root_run) else "in_progress",
                 "raw_keys": sorted({key for run in sorted_runs for key in run.keys()}),
             },
         }
@@ -433,6 +543,37 @@ def _langsmith_sort_key(run: dict[str, Any]) -> tuple[str, int, str]:
     except (TypeError, ValueError):
         order = 0
     return (str(run.get("dotted_order") or ""), order, _started_at(run))
+
+
+def _validate_complete_langsmith_tree(
+    source_id: str,
+    trace_id: str,
+    runs: list[dict[str, Any]],
+) -> None:
+    if not runs:
+        raise ValueError(f"{source_id}: LangSmith returned no runs for trace {trace_id}")
+    run_ids = {_langsmith_run_id(run) for run in runs}
+    if trace_id not in run_ids:
+        raise ValueError(f"{source_id}: LangSmith trace {trace_id} is missing its root run")
+    roots = [run for run in runs if not _langsmith_parent_run_id(run)]
+    if len(roots) != 1 or _langsmith_run_id(roots[0]) != trace_id:
+        raise ValueError(
+            f"{source_id}: LangSmith trace {trace_id} has an invalid root structure "
+            f"({len(roots)} roots)"
+        )
+    missing_parents = sorted(
+        {
+            parent_id
+            for run in runs
+            if (parent_id := _langsmith_parent_run_id(run)) and parent_id not in run_ids
+        }
+    )
+    if missing_parents:
+        sample = ", ".join(missing_parents[:3])
+        raise ValueError(
+            f"{source_id}: LangSmith trace {trace_id} is incomplete; "
+            f"missing parent runs: {sample}"
+        )
 
 
 def _normalize_record(
@@ -698,23 +839,6 @@ def _is_langsmith_runs_payload(records: list[Any]) -> bool:
     return False
 
 
-def _langsmith_trace_ids(records: list[Any]) -> list[str]:
-    trace_ids: list[str] = []
-    seen: set[str] = set()
-    for record in records:
-        if not isinstance(record, dict):
-            continue
-        trace_id = record.get("trace_id") or record.get("traceId") or record.get("id") or record.get("run_id")
-        if not trace_id:
-            continue
-        trace_id = str(trace_id)
-        if trace_id in seen:
-            continue
-        seen.add(trace_id)
-        trace_ids.append(trace_id)
-    return trace_ids
-
-
 def _flatten_otel_spans(payload: dict[str, Any]) -> list[dict[str, Any]]:
     spans: list[dict[str, Any]] = []
     for resource_span in payload.get("resourceSpans") or []:
@@ -828,6 +952,30 @@ def _http_error_message(exc: Exception) -> str:
         return str(exc)
     body = body.strip()
     return f"{exc}: {body}" if body else str(exc)
+
+
+def _http_status(exc: Exception) -> int | None:
+    status = getattr(exc, "code", None) or getattr(exc, "status", None)
+    try:
+        return int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _retry_delay_seconds(
+    exc: Exception,
+    attempt: int,
+    settings: dict[str, str],
+) -> float:
+    headers = getattr(exc, "headers", None)
+    retry_after = headers.get("Retry-After") if headers is not None else None
+    try:
+        if retry_after is not None:
+            return max(float(retry_after), 0.0)
+    except (TypeError, ValueError):
+        pass
+    base = float(settings.get("rate_limit_backoff_seconds", "1"))
+    return base * (2**attempt)
 
 
 def _default_path(source_type: str) -> str:

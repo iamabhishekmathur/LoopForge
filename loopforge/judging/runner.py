@@ -18,6 +18,7 @@ from loopforge.judging.hypothesis import judge_hypotheses
 from loopforge.judging.interpreter import interpret_trace
 from loopforge.judging.planner import plan_judges
 from loopforge.traces.stitcher import stitch_traces
+from loopforge.traces.quality import is_analysis_eligible_trace
 
 
 @dataclass(frozen=True)
@@ -35,7 +36,18 @@ def run_hypothesis_judging(
 ) -> JudgeRunResult:
     store = Store.for_project(root)
     try:
-        trace_payloads = store.list_traces(limit=limit)
+        all_trace_payloads = store.list_traces()
+        ineligible_trace_ids = [
+            str(payload["trace_id"])
+            for payload in all_trace_payloads
+            if not is_analysis_eligible_trace(payload)
+        ]
+        store.delete_hypothesis_findings_for_traces(ineligible_trace_ids)
+        trace_payloads = [
+            payload for payload in all_trace_payloads if is_analysis_eligible_trace(payload)
+        ]
+        if limit is not None:
+            trace_payloads = trace_payloads[:limit]
         artifact_payloads = store.list_harness_artifacts()
         artifacts = [HarnessArtifact.from_dict(payload) for payload in artifact_payloads]
         behavior_map = build_behavior_map(artifacts)

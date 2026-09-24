@@ -186,9 +186,14 @@ traces:
       type: langsmith
       base_url: https://api.smith.langchain.com
       project: support-agent
-      limit: 100
-      pagination: cursor
+      limit: 25
+      sync_lookback_minutes: 10
 ```
+
+The LangSmith connector treats `limit` as a trace count. It selects root runs, hydrates every
+selected `trace_id`, and rejects incomplete trees before analysis. `--last 24h` or `--last 7d`
+is applied to the provider query; incremental runs use a configurable overlap and idempotent
+upserts so late-finishing traces are refreshed.
 
 Use environment variables for hosted credentials, such as `LANGSMITH_API_KEY`, `LANGFUSE_PUBLIC_KEY`, or `BRAINTRUST_API_KEY`.
 
@@ -418,7 +423,8 @@ traces:
       type: langsmith
       base_url: https://api.smith.langchain.com
       project: support-agent
-      limit: 100
+      limit: 25
+      sync_lookback_minutes: 10
 ```
 
 ## Development

@@ -16,8 +16,8 @@ SAMPLE_CONFIGS: dict[str, str] = {
       type: langsmith
       base_url: https://api.smith.langchain.com
       project: YOUR_LANGSMITH_PROJECT
-      limit: 100
-      pagination: cursor
+      limit: 25
+      sync_lookback_minutes: 10
 """,
     "langfuse": """traces:
   sources:

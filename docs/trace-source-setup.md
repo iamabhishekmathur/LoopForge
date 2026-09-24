@@ -165,9 +165,22 @@ traces:
       type: langsmith
       base_url: https://api.smith.langchain.com
       project: support-agent
-      limit: 100
-      pagination: cursor
+      limit: 25
+      sync_lookback_minutes: 10
 ```
+
+For LangSmith, `limit` is the number of root agent traces selected per run. LoopForge first
+queries root runs, then fetches every run belonging to each selected `trace_id`. It validates
+that each tree has one root and no missing parent runs before the trace can enter analysis.
+Full-tree hydration is mandatory; a page of spans is never treated as a complete trace.
+
+`loopforge shadow --last 7d` and `loopforge monitor --once --last 7d` send the requested
+time boundary to LangSmith. Incremental runs without an explicit window re-read the previous
+10 minutes by default so late-finishing traces are refreshed through idempotent upserts. Change
+that overlap with `sync_lookback_minutes`.
+
+LangSmith rate limits are retried with provider-aware backoff. If pagination cannot be exhausted
+or a trace tree fails structural validation, the sync fails and its watermark is not advanced.
 
 Credentials should come from environment variables, not committed config:
 
@@ -205,7 +218,7 @@ Provider defaults:
 
 | Type | Default path | Default request behavior |
 | --- | --- | --- |
-| `langsmith` | `/runs/query` | POST body includes project, limit, high-watermark timestamp, and cursor when available. |
+| `langsmith` | `/runs/query` | Selects root runs, hydrates each complete trace tree, validates parent coverage, and applies the requested time window. |
 | `langfuse` | `/api/public/v2/observations` | GET query includes observation fields, time window, limit, and cursor when available. |
 | `braintrust` | `/v1/traces` | GET with project, time window, limit, and cursor query parameters. |
 | `phoenix` | `/v1/traces` | GET with project, time window, limit, and cursor query parameters. |

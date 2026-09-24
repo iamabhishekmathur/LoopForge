@@ -13,9 +13,32 @@ from loopforge.judging.planner import plan_judges
 from loopforge.models.harness import HarnessArtifact
 from loopforge.models.trace import Trace
 from loopforge.traces.stitcher import stitch_traces
+from loopforge.traces.quality import is_analysis_eligible_trace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_legacy_partial_langsmith_trace_is_not_analysis_eligible() -> None:
+    base = {
+        "trace_id": "prod:trace-1",
+        "metadata": {
+            "source_type": "langsmith",
+            "record_shape": "runs_query",
+        },
+    }
+
+    assert is_analysis_eligible_trace(base) is False
+    assert (
+        is_analysis_eligible_trace(
+            {
+                **base,
+                "metadata": {**base["metadata"], "tree_fetch_complete": True},
+            }
+        )
+        is True
+    )
+    assert is_analysis_eligible_trace({"trace_id": "jsonl-1", "metadata": {}}) is True
 
 
 def run_loopforge(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:

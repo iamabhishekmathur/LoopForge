@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from loopforge.adapters.registry import read_traces
+from loopforge.adapters.sync import trace_window_start
 from loopforge.analysis.judge import write_diagnosis
 from loopforge.config import configured_issue_judge
 from loopforge.db import Store
@@ -42,7 +43,11 @@ def run_shadow_pipeline(
     window: str,
     trace_path_override: str | None = None,
 ) -> ShadowRunResult:
-    trace_path, traces = read_traces(root, trace_path_override)
+    trace_path, traces = read_traces(
+        root,
+        trace_path_override,
+        since_override=trace_window_start(window),
+    )
     traces = stitch_traces(traces)
 
     store = Store.for_project(root)

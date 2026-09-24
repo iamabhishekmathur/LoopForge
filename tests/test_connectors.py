@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,13 @@ from loopforge.adapters.registry import (
     read_traces,
 )
 from loopforge.adapters.hosted import HostedTraceAdapter, normalize_provider_payload
-from loopforge.adapters.sync import read_sync_state
+from loopforge.adapters.sync import (
+    overlapped_watermark,
+    read_sync_state,
+    trace_window_start,
+    update_sync_state_from_traces,
+)
+from loopforge.models.trace import Trace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -108,6 +115,50 @@ def test_read_traces_uses_all_jsonl_sources(tmp_path: Path) -> None:
     assert state.last_trace_id == "tr_1"
 
 
+def test_trace_window_and_sync_overlap_are_real_timestamps() -> None:
+    now = datetime(2026, 1, 8, 12, 0, tzinfo=UTC)
+
+    assert trace_window_start("7d", now) == "2026-01-01T12:00:00+00:00"
+    assert trace_window_start("24 hours", now) == "2026-01-07T12:00:00+00:00"
+    assert overlapped_watermark("2026-01-08T12:00:00Z", 10) == "2026-01-08T11:50:00+00:00"
+
+
+def test_empty_sync_retains_prior_high_watermark(tmp_path: Path) -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "trace-1",
+            "started_at": "2026-01-08T12:00:00Z",
+            "inputs": {},
+            "spans": [
+                {
+                    "span_id": "span-1",
+                    "type": "application",
+                    "name": "agent",
+                    "started_at": "2026-01-08T12:00:00Z",
+                }
+            ],
+        }
+    )
+    prior = update_sync_state_from_traces(
+        tmp_path,
+        source_id="prod",
+        source_type="langsmith",
+        traces=[trace],
+    )
+
+    current = update_sync_state_from_traces(
+        tmp_path,
+        source_id="prod",
+        source_type="langsmith",
+        traces=[],
+        prior_state=prior,
+    )
+
+    assert current.high_watermark_started_at == prior.high_watermark_started_at
+    assert current.last_trace_id == prior.last_trace_id
+
+
 def test_connectors_cli_shows_fixture_source(tmp_path: Path) -> None:
     project_root = copy_fixture(tmp_path)
 
@@ -148,6 +199,8 @@ def test_hosted_adapter_normalizes_langsmith_fixture() -> None:
     assert traces[0].spans[1].type == "tool_call"
     assert traces[0].spans[1].parent_span_id == "ls-run-1"
     assert traces[0].spans[1].side_effect_class == "destructive"
+    assert traces[0].metadata["tree_fetch_complete"] is True
+    assert traces[0].metadata["fixture_snapshot"] is True
 
 
 def test_langsmith_flat_runs_are_grouped_by_trace_id() -> None:
@@ -469,8 +522,13 @@ def test_hosted_adapter_follows_cursor_pagination(monkeypatch) -> None:
 def test_langsmith_pagination_sends_next_cursor_in_post_body(monkeypatch) -> None:
     bodies = []
     pages = [
-        {"runs": [{"id": "run-1", "started_at": "2026-01-01T00:00:00Z"}], "nextCursor": "cursor-2"},
-        {"runs": [{"id": "run-2", "started_at": "2026-01-01T00:01:00Z"}]},
+        {
+            "runs": [{"id": "run-1", "trace_id": "run-1", "started_at": "2026-01-01T00:00:00Z"}],
+            "nextCursor": "cursor-2",
+        },
+        {"runs": [{"id": "run-2", "trace_id": "run-2", "started_at": "2026-01-01T00:01:00Z"}]},
+        {"runs": [{"id": "run-1", "trace_id": "run-1", "started_at": "2026-01-01T00:00:00Z"}]},
+        {"runs": [{"id": "run-2", "trace_id": "run-2", "started_at": "2026-01-01T00:01:00Z"}]},
     ]
 
     class FakeResponse:
@@ -497,6 +555,7 @@ def test_langsmith_pagination_sends_next_cursor_in_post_body(monkeypatch) -> Non
         {
             "base_url": "https://api.example.test",
             "project": "support-agent",
+            "limit": "2",
             "pagination": "cursor",
             "max_pages": "2",
             "hydrate_traces": "false",
@@ -506,20 +565,25 @@ def test_langsmith_pagination_sends_next_cursor_in_post_body(monkeypatch) -> Non
     traces = adapter.read(REPO_ROOT)
 
     assert bodies == [
-        {"project_name": "support-agent"},
-        {"project_name": "support-agent", "cursor": "cursor-2"},
+        {"project_name": "support-agent", "limit": 2, "is_root": True},
+        {"project_name": "support-agent", "limit": 2, "is_root": True, "cursor": "cursor-2"},
+        {"trace": "run-1"},
+        {"trace": "run-2"},
     ]
     assert [trace.source_trace_id for trace in traces] == ["run-1", "run-2"]
+    assert all(trace.metadata["tree_fetch_complete"] for trace in traces)
 
 
 def test_langsmith_pagination_reads_cursors_next(monkeypatch) -> None:
     bodies = []
     pages = [
         {
-            "runs": [{"id": "run-1", "started_at": "2026-01-01T00:00:00Z"}],
+            "runs": [{"id": "run-1", "trace_id": "run-1", "started_at": "2026-01-01T00:00:00Z"}],
             "cursors": {"next": "lt(cursor, 'abc')", "prev": None},
         },
-        {"runs": [{"id": "run-2", "started_at": "2026-01-01T00:01:00Z"}]},
+        {"runs": [{"id": "run-2", "trace_id": "run-2", "started_at": "2026-01-01T00:01:00Z"}]},
+        {"runs": [{"id": "run-1", "trace_id": "run-1", "started_at": "2026-01-01T00:00:00Z"}]},
+        {"runs": [{"id": "run-2", "trace_id": "run-2", "started_at": "2026-01-01T00:01:00Z"}]},
     ]
 
     class FakeResponse:
@@ -546,6 +610,7 @@ def test_langsmith_pagination_reads_cursors_next(monkeypatch) -> None:
         {
             "base_url": "https://api.example.test",
             "project": "support-agent",
+            "limit": "2",
             "pagination": "cursor",
             "max_pages": "2",
             "hydrate_traces": "false",
@@ -555,8 +620,15 @@ def test_langsmith_pagination_reads_cursors_next(monkeypatch) -> None:
     traces = adapter.read(REPO_ROOT)
 
     assert bodies == [
-        {"project_name": "support-agent"},
-        {"project_name": "support-agent", "cursor": "lt(cursor, 'abc')"},
+        {"project_name": "support-agent", "limit": 2, "is_root": True},
+        {
+            "project_name": "support-agent",
+            "limit": 2,
+            "is_root": True,
+            "cursor": "lt(cursor, 'abc')",
+        },
+        {"trace": "run-1"},
+        {"trace": "run-2"},
     ]
     assert [trace.source_trace_id for trace in traces] == ["run-1", "run-2"]
 
@@ -567,7 +639,7 @@ def test_langsmith_adapter_hydrates_runs_by_trace_id(monkeypatch) -> None:
         {
             "runs": [
                 {
-                    "id": "root-run",
+                    "id": "trace-1",
                     "trace_id": "trace-1",
                     "name": "agent",
                     "run_type": "chain",
@@ -579,7 +651,7 @@ def test_langsmith_adapter_hydrates_runs_by_trace_id(monkeypatch) -> None:
         {
             "runs": [
                 {
-                    "id": "root-run",
+                    "id": "trace-1",
                     "trace_id": "trace-1",
                     "name": "agent",
                     "run_type": "chain",
@@ -590,7 +662,7 @@ def test_langsmith_adapter_hydrates_runs_by_trace_id(monkeypatch) -> None:
                 {
                     "id": "tool-run",
                     "trace_id": "trace-1",
-                    "parent_run_id": "root-run",
+                    "parent_run_id": "trace-1",
                     "name": "cancel_subscription",
                     "run_type": "tool",
                     "start_time": "2026-01-01T00:00:01Z",
@@ -630,13 +702,197 @@ def test_langsmith_adapter_hydrates_runs_by_trace_id(monkeypatch) -> None:
     traces = adapter.read(REPO_ROOT)
 
     assert bodies == [
-        {"project_name": "support-agent", "limit": 1},
-        {"project_name": "support-agent", "limit": 100, "trace": "trace-1"},
+        {"project_name": "support-agent", "limit": 1, "is_root": True},
+        {"trace": "trace-1"},
     ]
     assert len(traces) == 1
     assert traces[0].outputs == {"answer": "done"}
-    assert [span.span_id for span in traces[0].spans] == ["root-run", "tool-run"]
-    assert traces[0].spans[1].parent_span_id == "root-run"
+    assert [span.span_id for span in traces[0].spans] == ["trace-1", "tool-run"]
+    assert traces[0].spans[1].parent_span_id == "trace-1"
+    assert traces[0].metadata["tree_fetch_complete"] is True
+    assert traces[0].metadata["provider_run_count"] == 2
+
+
+def test_langsmith_hydration_follows_tree_pages_before_validation(monkeypatch) -> None:
+    bodies = []
+    pages = [
+        {
+            "runs": [
+                {
+                    "id": "trace-1",
+                    "trace_id": "trace-1",
+                    "start_time": "2026-01-01T00:00:00Z",
+                }
+            ]
+        },
+        {
+            "runs": [
+                {
+                    "id": "trace-1",
+                    "trace_id": "trace-1",
+                    "start_time": "2026-01-01T00:00:00Z",
+                }
+            ],
+            "cursors": {"next": "tree-page-2"},
+        },
+        {
+            "runs": [
+                {
+                    "id": "tool-1",
+                    "trace_id": "trace-1",
+                    "parent_run_id": "trace-1",
+                    "start_time": "2026-01-01T00:00:01Z",
+                }
+            ]
+        },
+    ]
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self.payload = payload
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        bodies.append(json.loads(request.data.decode("utf-8")))
+        return FakeResponse(pages[len(bodies) - 1])
+
+    monkeypatch.setattr("loopforge.adapters.hosted.urlopen", fake_urlopen)
+    traces = HostedTraceAdapter(
+        "prod",
+        "langsmith",
+        {"base_url": "https://api.example.test", "project": "agent", "limit": "1"},
+    ).read(REPO_ROOT)
+
+    assert bodies[-1] == {"trace": "trace-1", "cursor": "tree-page-2"}
+    assert [span.span_id for span in traces[0].spans] == ["trace-1", "tool-1"]
+    assert traces[0].metadata["provider_run_count"] == 2
+
+
+def test_langsmith_rejects_tree_with_missing_parent(monkeypatch) -> None:
+    pages = [
+        {
+            "runs": [
+                {
+                    "id": "trace-1",
+                    "trace_id": "trace-1",
+                    "start_time": "2026-01-01T00:00:00Z",
+                }
+            ]
+        },
+        {
+            "runs": [
+                {
+                    "id": "trace-1",
+                    "trace_id": "trace-1",
+                    "start_time": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "id": "tool-1",
+                    "trace_id": "trace-1",
+                    "parent_run_id": "missing-parent",
+                    "start_time": "2026-01-01T00:00:01Z",
+                },
+            ]
+        },
+    ]
+    calls = 0
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self.payload = payload
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        response = FakeResponse(pages[calls])
+        calls += 1
+        return response
+
+    monkeypatch.setattr("loopforge.adapters.hosted.urlopen", fake_urlopen)
+    adapter = HostedTraceAdapter(
+        "prod",
+        "langsmith",
+        {"base_url": "https://api.example.test", "project": "agent", "limit": "1"},
+    )
+
+    with pytest.raises(ValueError, match="missing parent runs: missing-parent"):
+        adapter.read(REPO_ROOT)
+
+
+def test_langsmith_retries_rate_limit(monkeypatch) -> None:
+    calls = 0
+    sleeps = []
+    pages = [
+        {
+            "runs": [
+                {
+                    "id": "trace-1",
+                    "trace_id": "trace-1",
+                    "start_time": "2026-01-01T00:00:00Z",
+                }
+            ]
+        },
+        {
+            "runs": [
+                {
+                    "id": "trace-1",
+                    "trace_id": "trace-1",
+                    "start_time": "2026-01-01T00:00:00Z",
+                }
+            ]
+        },
+    ]
+
+    class RateLimited(Exception):
+        code = 429
+        headers = {"Retry-After": "0.25"}
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self.payload = payload
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RateLimited("rate limited")
+        return FakeResponse(pages[calls - 2])
+
+    monkeypatch.setattr("loopforge.adapters.hosted.urlopen", fake_urlopen)
+    monkeypatch.setattr("loopforge.adapters.hosted.time.sleep", sleeps.append)
+    traces = HostedTraceAdapter(
+        "prod",
+        "langsmith",
+        {"base_url": "https://api.example.test", "project": "agent", "limit": "1"},
+    ).read(REPO_ROOT)
+
+    assert len(traces) == 1
+    assert sleeps == [0.25]
 
 
 def test_hosted_adapter_includes_provider_error_detail(monkeypatch) -> None:
