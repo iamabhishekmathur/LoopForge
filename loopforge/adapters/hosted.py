@@ -882,6 +882,18 @@ def _next_cursor(payload: Any) -> str | None:
             pagination.get("cursor"),
         ]
     )
+    cursors = payload.get("cursors") if isinstance(payload.get("cursors"), dict) else {}
+    candidates.extend([cursors.get("next"), cursors.get("nextCursor"), cursors.get("next_cursor")])
+    search_cursors = (
+        payload.get("search_cursors") if isinstance(payload.get("search_cursors"), dict) else {}
+    )
+    candidates.extend(
+        [
+            search_cursors.get("next"),
+            search_cursors.get("nextCursor"),
+            search_cursors.get("next_cursor"),
+        ]
+    )
     for candidate in candidates:
         if candidate:
             return str(candidate)

@@ -512,6 +512,55 @@ def test_langsmith_pagination_sends_next_cursor_in_post_body(monkeypatch) -> Non
     assert [trace.source_trace_id for trace in traces] == ["run-1", "run-2"]
 
 
+def test_langsmith_pagination_reads_cursors_next(monkeypatch) -> None:
+    bodies = []
+    pages = [
+        {
+            "runs": [{"id": "run-1", "started_at": "2026-01-01T00:00:00Z"}],
+            "cursors": {"next": "lt(cursor, 'abc')", "prev": None},
+        },
+        {"runs": [{"id": "run-2", "started_at": "2026-01-01T00:01:00Z"}]},
+    ]
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self.payload = payload
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        bodies.append(json.loads(request.data.decode("utf-8")))
+        return FakeResponse(pages[len(bodies) - 1])
+
+    monkeypatch.setattr("loopforge.adapters.hosted.urlopen", fake_urlopen)
+    adapter = HostedTraceAdapter(
+        "prod",
+        "langsmith",
+        {
+            "base_url": "https://api.example.test",
+            "project": "support-agent",
+            "pagination": "cursor",
+            "max_pages": "2",
+            "hydrate_traces": "false",
+        },
+    )
+
+    traces = adapter.read(REPO_ROOT)
+
+    assert bodies == [
+        {"project_name": "support-agent"},
+        {"project_name": "support-agent", "cursor": "lt(cursor, 'abc')"},
+    ]
+    assert [trace.source_trace_id for trace in traces] == ["run-1", "run-2"]
+
+
 def test_langsmith_adapter_hydrates_runs_by_trace_id(monkeypatch) -> None:
     bodies = []
     pages = [
