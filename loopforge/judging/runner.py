@@ -17,6 +17,7 @@ from loopforge.judging.behavior_map import build_behavior_map
 from loopforge.judging.hypothesis import judge_hypotheses
 from loopforge.judging.interpreter import interpret_trace
 from loopforge.judging.planner import plan_judges
+from loopforge.traces.stitcher import stitch_traces
 
 
 @dataclass(frozen=True)
@@ -39,12 +40,12 @@ def run_hypothesis_judging(
         artifacts = [HarnessArtifact.from_dict(payload) for payload in artifact_payloads]
         behavior_map = build_behavior_map(artifacts)
         selected_judge = judge or configured_hypothesis_judge(root)
-        store.delete_hypothesis_findings_for_traces(
-            [str(payload["trace_id"]) for payload in trace_payloads if payload.get("trace_id")]
-        )
+        traces = stitch_traces([Trace.from_dict(payload) for payload in trace_payloads])
+        for trace in traces:
+            store.upsert_trace(trace.to_dict())
+        store.delete_hypothesis_findings_for_traces([trace.trace_id for trace in traces])
         findings: list[HypothesisFinding] = []
-        for payload in trace_payloads:
-            trace = Trace.from_dict(payload)
+        for trace in traces:
             archive_trace(root, trace.to_dict())
             observed = interpret_trace(trace)
             plan = plan_judges(observed, behavior_map)
@@ -66,7 +67,7 @@ def run_hypothesis_judging(
     finally:
         store.close()
     return JudgeRunResult(
-        trace_count=len(trace_payloads),
+        trace_count=len(traces),
         behavior_artifact_count=len(artifacts),
         finding_count=len(findings),
         stored_count=len(findings),

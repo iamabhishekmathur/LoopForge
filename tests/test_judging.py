@@ -12,6 +12,7 @@ from loopforge.judging.model_judge import OpenAICompatibleHypothesisJudge
 from loopforge.judging.planner import plan_judges
 from loopforge.models.harness import HarnessArtifact
 from loopforge.models.trace import Trace
+from loopforge.traces.stitcher import stitch_traces
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -186,6 +187,43 @@ def test_interpreter_prefers_real_user_request_over_internal_human_prompt() -> N
     assert "BEHAVIOURAL LAYER" not in observed.user_intent
 
 
+def test_interpreter_prefers_explicit_state_user_query_over_internal_prompt() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_state_user_query",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {
+                "input": [
+                    {
+                        "role": "user",
+                        "content": "You will be provided SQL Query, Schema, and SQL Response.",
+                    }
+                ]
+            },
+            "outputs": {"output": {"summary": "Customer 302314 has one active account."}},
+            "spans": [
+                {
+                    "span_id": "sp_1",
+                    "type": "router",
+                    "name": "post_execution_node",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {
+                        "user_query": "list all the accounts for customer id 302314",
+                        "artifact_store": {"artifacts": []},
+                    },
+                    "output": {},
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.user_intent == "list all the accounts for customer id 302314"
+    assert "SQL Query" not in observed.user_intent
+
+
 def test_interpreter_does_not_treat_tool_use_as_final_response() -> None:
     trace = Trace.from_dict(
         {
@@ -329,6 +367,112 @@ def test_judge_planner_names_missing_evidence_for_partial_trace() -> None:
     assert "user_intent" in observed.missing_evidence
     assert "final_response" in observed.missing_evidence
     assert any(not task.judgeable for task in plan.tasks)
+
+
+def test_stitcher_inherits_nearby_turn_context_for_runtime_trace() -> None:
+    turn_trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_turn",
+            "session_id": "session-1",
+            "started_at": "2026-09-21T00:00:10Z",
+            "inputs": {"user_query": "list all accounts for customer 302314"},
+            "outputs": {"assistant_message": "Customer 302314 has one active account."},
+            "spans": [
+                {
+                    "span_id": "turn_1",
+                    "type": "router",
+                    "name": "post_execution_node",
+                    "started_at": "2026-09-21T00:00:11Z",
+                    "input": {"current_turn_id": "turn-1"},
+                    "output": {},
+                }
+            ],
+            "metadata": {"source_id": "prod", "source_type": "langsmith"},
+        }
+    )
+    runtime_trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_runtime",
+            "session_id": "session-1",
+            "started_at": "2026-09-21T00:00:22Z",
+            "inputs": {"db_query": "select * from accounts"},
+            "outputs": {"rowsCount": 1},
+            "spans": [
+                {
+                    "span_id": "sql_1",
+                    "type": "router",
+                    "name": "sql_execution",
+                    "started_at": "2026-09-21T00:00:22Z",
+                    "input": {"conversation_id": "conversation-1", "db_query": "select * from accounts"},
+                    "output": {"rowsCount": 1},
+                }
+            ],
+            "metadata": {"source_id": "prod", "source_type": "langsmith"},
+        }
+    )
+
+    stitched = {trace.trace_id: trace for trace in stitch_traces([runtime_trace, turn_trace])}
+    observed = interpret_trace(stitched["tr_runtime"])
+
+    assert observed.user_intent == "list all accounts for customer 302314"
+    assert observed.final_response == "Customer 302314 has one active account."
+    assert "user_intent" in observed.available_evidence
+    assert "final_response" in observed.available_evidence
+    assert "user_intent" not in observed.missing_evidence
+    assert stitched["tr_runtime"].metadata["stitching"]["method"] == "same_session_temporal"
+
+
+def test_stitcher_does_not_inherit_stale_session_context() -> None:
+    old_turn = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_old_turn",
+            "session_id": "session-1",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_query": "old question"},
+            "outputs": {"assistant_message": "old answer"},
+            "spans": [
+                {
+                    "span_id": "old_1",
+                    "type": "router",
+                    "name": "agent",
+                    "started_at": "2026-09-21T00:00:00Z",
+                    "input": {},
+                    "output": {},
+                }
+            ],
+            "metadata": {"source_id": "prod", "source_type": "langsmith"},
+        }
+    )
+    runtime = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_late_runtime",
+            "session_id": "session-1",
+            "started_at": "2026-09-21T01:00:00Z",
+            "inputs": {"db_query": "select 1"},
+            "outputs": {"rowsCount": 1},
+            "spans": [
+                {
+                    "span_id": "sql_1",
+                    "type": "router",
+                    "name": "sql_execution",
+                    "started_at": "2026-09-21T01:00:00Z",
+                    "input": {"db_query": "select 1"},
+                    "output": {"rowsCount": 1},
+                }
+            ],
+            "metadata": {"source_id": "prod", "source_type": "langsmith"},
+        }
+    )
+
+    stitched = {trace.trace_id: trace for trace in stitch_traces([runtime, old_turn])}
+    observed = interpret_trace(stitched["tr_late_runtime"])
+
+    assert observed.user_intent is None
+    assert "stitching" not in stitched["tr_late_runtime"].metadata
 
 
 def test_judge_cli_persists_hypothesis_findings(tmp_path: Path) -> None:

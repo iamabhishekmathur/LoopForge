@@ -11,17 +11,34 @@ from loopforge.models.trace import Span, Trace
 
 
 USER_INTENT_KEYS = (
+    "_loopforge_stitched_user_intent",
+    "user_intent",
+    "original_user_query",
+    "verbatim_user_query",
     "user_message",
     "user_query",
+    "user_question",
+    "user_questions",
     "query",
     "user_input",
-    "input",
     "question",
+    "input",
     "prompt",
     "message",
     "messages",
 )
+EXPLICIT_USER_INTENT_KEYS = (
+    "_loopforge_stitched_user_intent",
+    "user_intent",
+    "original_user_query",
+    "verbatim_user_query",
+    "user_message",
+    "user_query",
+    "user_question",
+    "user_questions",
+)
 FINAL_RESPONSE_KEYS = (
+    "_loopforge_stitched_final_response",
     "assistant_message",
     "final_response",
     "answer",
@@ -78,6 +95,12 @@ def interpret_trace(trace: Trace) -> ObservedAgentRun:
 def _extract_user_intent(trace: Trace) -> str | None:
     candidates: list[Any] = [trace.inputs]
     candidates.extend(span.input for span in trace.spans)
+    explicit_texts: list[str] = []
+    for candidate in candidates:
+        explicit_texts.extend(_find_text_values(candidate, EXPLICIT_USER_INTENT_KEYS))
+    selected = _select_user_intent(explicit_texts)
+    if selected:
+        return selected
     role_texts: list[str] = []
     for candidate in candidates:
         role_texts.extend(_role_text_candidates(candidate, {"user", "human", "humanmessage"}))
@@ -190,6 +213,25 @@ def _find_text(value: Any, keys: tuple[str, ...]) -> str | None:
                 if found:
                     return found
     return None
+
+
+def _find_text_values(value: Any, keys: tuple[str, ...]) -> list[str]:
+    values: list[str] = []
+    if value is None:
+        return values
+    if isinstance(value, list):
+        for item in value:
+            values.extend(_find_text_values(item, keys))
+        return values
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in keys:
+                found = _extract_string(item)
+                if found:
+                    values.append(found)
+            if isinstance(item, (dict, list)):
+                values.extend(_find_text_values(item, keys))
+    return values
 
 
 def _find_role_text(value: Any, roles: set[str]) -> str | None:

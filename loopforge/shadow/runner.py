@@ -20,6 +20,7 @@ from loopforge.issues.report import write_issue_report
 from loopforge.issues.resolution import build_resolution_plan, write_resolution_plan
 from loopforge.state.graph import build_harness_state_snapshot, write_harness_state_snapshot
 from loopforge.trajectories.builder import build_trajectory
+from loopforge.traces.stitcher import stitch_traces
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ def run_shadow_pipeline(
     trace_path_override: str | None = None,
 ) -> ShadowRunResult:
     trace_path, traces = read_traces(root, trace_path_override)
+    traces = stitch_traces(traces)
 
     store = Store.for_project(root)
     try:
