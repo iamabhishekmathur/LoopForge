@@ -55,6 +55,14 @@ FINAL_RESPONSE_KEYS = (
     "content",
     "message",
 )
+ROOT_TERMINAL_RESPONSE_KEYS = (
+    "_loopforge_stitched_final_response",
+    "response_text",
+    "final_response",
+    "assistant_message",
+    "structured_response",
+    "answer",
+)
 INTERACTION_RESPONSE_KEYS = ("question", "clarification_query")
 EXPECTED_CONTROL_FLOW_EXCEPTIONS = {
     "GraphInterrupt",
@@ -67,7 +75,11 @@ TOOLISH_TYPES = {"tool_call", "router", "retriever", "application"}
 def interpret_trace(trace: Trace) -> ObservedAgentRun:
     user_intent = _extract_user_intent(trace)
     final_response = _extract_final_response(trace)
+    user_intent_candidates = _user_intent_candidates(trace)
+    current_turn_candidates = _current_turn_candidates(trace)
+    final_response_candidates = _final_response_candidates(trace)
     tool_calls = _extract_tool_calls(trace.spans)
+    tool_actions = _extract_tool_actions(trace.spans)
     steps = []
     runtime_errors: list[str] = []
     control_flow_events: list[dict[str, Any]] = []
@@ -119,11 +131,18 @@ def interpret_trace(trace: Trace) -> ObservedAgentRun:
             "source_type": trace.metadata.get("source_type"),
             "source_id": trace.metadata.get("source_id"),
             "control_flow_events": control_flow_events,
+            "user_intent_candidates": user_intent_candidates,
+            "current_turn_candidates": current_turn_candidates,
+            "final_response_candidates": final_response_candidates,
+            "tool_actions": tool_actions,
         },
     )
 
 
 def _extract_user_intent(trace: Trace) -> str | None:
+    current_turn = _current_turn_candidates(trace)
+    if current_turn:
+        return current_turn[0]
     all_candidates: list[Any] = [trace.inputs, trace.outputs]
     all_candidates.extend(span.input for span in trace.spans)
     all_candidates.extend(span.output for span in trace.spans)
@@ -167,6 +186,9 @@ def _extract_user_intent(trace: Trace) -> str | None:
 
 
 def _extract_final_response(trace: Trace) -> str | None:
+    root_terminal = _root_terminal_response(trace.outputs)
+    if root_terminal:
+        return root_terminal
     candidates: list[Any] = [trace.outputs]
     candidates.extend(reversed([span.output for span in trace.spans]))
     final_candidates: list[str] = []
@@ -187,12 +209,266 @@ def _extract_final_response(trace: Trace) -> str | None:
     return _select_final_response(final_candidates)
 
 
+def _user_intent_candidates(trace: Trace, *, limit: int = 8) -> list[str]:
+    values: list[str] = []
+    root_and_steps: list[Any] = [trace.inputs, trace.outputs]
+    root_and_steps.extend(span.input for span in trace.spans)
+    for candidate in root_and_steps:
+        values.extend(_find_text_values(candidate, ORIGINAL_USER_INTENT_KEYS))
+        values.extend(_find_text_values(candidate, EXPLICIT_USER_INTENT_KEYS))
+        values.extend(_role_text_candidates(candidate, {"user", "human", "humanmessage"}))
+    return _rank_distinct_candidates(values, selector=_select_user_intent, limit=limit)
+
+
+def _current_turn_candidates(trace: Trace, *, limit: int = 5) -> list[str]:
+    values: list[str] = []
+    if isinstance(trace.inputs, dict):
+        data = trace.inputs.get("data")
+        if isinstance(data, dict):
+            for key in ("query", "displayMessage", "user_message", "message"):
+                found = _extract_string(data.get(key))
+                if found:
+                    values.append(found)
+        llm_messages = trace.inputs.get("llm_messages")
+        if isinstance(llm_messages, list):
+            for item in reversed(llm_messages):
+                if not isinstance(item, dict):
+                    continue
+                role = _normalize_role(str(item.get("role") or item.get("type") or ""))
+                if role in {"user", "human", "humanmessage"}:
+                    found = _extract_string(item.get("content") or item.get("text"))
+                    if found:
+                        values.append(found)
+                        break
+        for key in EXPLICIT_USER_INTENT_KEYS:
+            found = _extract_string(trace.inputs.get(key))
+            if found:
+                values.append(found)
+    if not values:
+        role_values = _role_text_candidates(trace.inputs, {"user", "human", "humanmessage"})
+        values.extend(reversed(role_values))
+    cleaned: list[str] = []
+    for value in values:
+        text = _extract_marked_user_question(value) or _clean_text(value)
+        if not text or _looks_like_internal_prompt(text) or _looks_like_sql_only(text):
+            continue
+        if text not in cleaned:
+            cleaned.append(text[:2400])
+    return cleaned[:limit]
+
+
+def _final_response_candidates(trace: Trace, *, limit: int = 10) -> list[str]:
+    values: list[str] = []
+    candidates: list[Any] = [trace.outputs]
+    candidates.extend(reversed([span.output for span in trace.spans]))
+    for candidate in candidates:
+        values.extend(_role_text_candidates(candidate, {"assistant", "ai", "aimessage"}))
+        values.extend(_find_text_values(candidate, FINAL_RESPONSE_KEYS))
+    filtered = [
+        value
+        for value in values
+        if value
+        and not _looks_like_tabular_payload(value)
+        and not _looks_like_tool_call_payload(value)
+        and not _looks_like_internal_state_payload(value)
+        and not _looks_like_internal_prompt(value)
+    ]
+    ranked = _rank_distinct_candidates(filtered, selector=_select_final_response, limit=limit)
+    root_terminal = _root_terminal_response(trace.outputs)
+    if not root_terminal:
+        return ranked
+    return [root_terminal] + [value for value in ranked if value != root_terminal][: limit - 1]
+
+
+def _root_terminal_response(outputs: Any) -> str | None:
+    """Prefer provider-declared terminal output over content-scored intermediate text."""
+
+    if not isinstance(outputs, dict):
+        return None
+    for key in ROOT_TERMINAL_RESPONSE_KEYS:
+        if key not in outputs:
+            continue
+        value = outputs[key]
+        found = (
+            _structured_response_text(value)
+            if key == "structured_response"
+            else _extract_string(value)
+        )
+        if found and not _looks_like_internal_prompt(found) and not _looks_like_tabular_payload(found):
+            return found
+
+    messages = outputs.get("messages")
+    if isinstance(messages, list):
+        for message in reversed(messages):
+            if not isinstance(message, dict):
+                continue
+            role = _normalize_role(str(message.get("role") or message.get("type") or ""))
+            if role not in {"assistant", "ai", "aimessage"}:
+                continue
+            found = _extract_string(message.get("content") or message.get("text"))
+            if found and not _looks_like_internal_prompt(found):
+                return found
+    return None
+
+
+def _structured_response_text(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return _extract_string(value)
+    parts: list[str] = []
+    for key in (
+        "likely_issue",
+        "answer",
+        "final_answer",
+        "summary",
+        "response",
+        "message",
+        "corrective_action",
+    ):
+        found = _extract_string(value.get(key))
+        if found and found not in parts:
+            parts.append(found)
+    if parts:
+        return _clean_text("\n\n".join(parts))
+    return _extract_string(value)
+
+
+def _rank_distinct_candidates(
+    values: list[str],
+    *,
+    selector,
+    limit: int,
+) -> list[str]:
+    remaining = list(dict.fromkeys(_clean_text(value) for value in values if _clean_text(value)))
+    ranked: list[str] = []
+    while remaining and len(ranked) < limit:
+        selected = selector(remaining)
+        if not selected:
+            break
+        ranked.append(selected[:2400])
+        remaining = [value for value in remaining if value != selected]
+    return ranked
+
+
 def _extract_tool_calls(spans: list[Span]) -> list[str]:
-    calls = []
+    calls: list[str] = []
     for span in spans:
         if span.type in TOOLISH_TYPES:
             calls.append(span.name)
-    return calls
+        for value in (span.input, span.output):
+            calls.extend(action["name"] for action in _nested_tool_actions(value))
+    return list(dict.fromkeys(calls))
+
+
+def _extract_tool_actions(spans: list[Span], *, limit: int = 30) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, span in enumerate(spans):
+        for value in (span.input, span.output):
+            for action in _nested_tool_actions(value):
+                signature = json.dumps(
+                    [action.get("id"), action.get("name"), action.get("input")],
+                    sort_keys=True,
+                    default=str,
+                )
+                if signature in seen:
+                    continue
+                seen.add(signature)
+                actions.append(
+                    {
+                        "step_index": index,
+                        "step_id": span.span_id,
+                        "step_name": span.name,
+                        "name": action["name"],
+                        "arguments_preview": _preview(action.get("input"), max_chars=3200),
+                        "outcome_summary": _tool_action_outcome_summary(action.get("input")),
+                    }
+                )
+    if len(actions) <= limit:
+        return actions
+    priority = [
+        action
+        for action in actions
+        if any(
+            marker in action["name"].lower()
+            for marker in ("answer", "diagnos", "submit", "patch", "publish", "clarif", "guard")
+        )
+    ]
+    tail = actions[-limit:]
+    combined = priority[-limit:] + tail
+    deduped: list[dict[str, Any]] = []
+    selected_keys: set[tuple[int, str]] = set()
+    for action in combined:
+        key = (int(action["step_index"]), str(action["name"]))
+        if key not in selected_keys:
+            selected_keys.add(key)
+            deduped.append(action)
+    return sorted(deduped[-limit:], key=lambda item: int(item["step_index"]))
+
+
+def _nested_tool_actions(value: Any) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    if isinstance(value, list):
+        for item in value:
+            actions.extend(_nested_tool_actions(item))
+        return actions
+    if not isinstance(value, dict):
+        return actions
+    value_type = _normalize_role(str(value.get("type") or ""))
+    name = value.get("name")
+    tool_input = value.get("input")
+    if value_type in {"tooluse", "toolcall"} and isinstance(name, str):
+        actions.append(
+            {
+                "id": value.get("id"),
+                "name": name,
+                "input": tool_input if isinstance(tool_input, dict) else value.get("args"),
+            }
+        )
+    tool_calls = value.get("tool_calls")
+    if isinstance(tool_calls, list):
+        for tool_call in tool_calls:
+            if isinstance(tool_call, dict) and isinstance(tool_call.get("name"), str):
+                actions.append(
+                    {
+                        "id": tool_call.get("id"),
+                        "name": tool_call["name"],
+                        "input": tool_call.get("args"),
+                    }
+                )
+    for item in value.values():
+        if isinstance(item, (dict, list)):
+            actions.extend(_nested_tool_actions(item))
+    return actions
+
+
+def _tool_action_outcome_summary(value: Any, *, max_chars: int = 4200) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    priority_keys = (
+        "likely_issue",
+        "answer",
+        "final_answer",
+        "headline",
+        "summary",
+        "diagnosis",
+        "rationale",
+        "confidence",
+        "degraded",
+        "status",
+        "evidence",
+        "recommended_action",
+    )
+    parts: list[str] = []
+    for key in priority_keys:
+        if key not in value or value[key] in (None, "", [], {}):
+            continue
+        parts.append(f"{key}: {_preview(value[key], max_chars=1200)}")
+        if sum(len(part) for part in parts) >= max_chars:
+            break
+    if not parts:
+        return None
+    text = " | ".join(parts)
+    return text if len(text) <= max_chars else text[:max_chars] + "..."
 
 
 def _available_evidence(
@@ -495,7 +771,7 @@ def _clean_text(value: str) -> str | None:
     return text or None
 
 
-def _preview(value: Any, max_chars: int = 360) -> str:
+def _preview(value: Any, max_chars: int = 1000) -> str:
     try:
         text = json.dumps(value, sort_keys=True)
     except TypeError:

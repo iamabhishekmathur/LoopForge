@@ -22,6 +22,9 @@ ONTOLOGY_BY_FINDING = {
     "guardrail_gap": "GUARDRAIL_ENFORCEMENT_ERROR",
     "context_misuse": "CONTEXT_USE_ERROR",
     "skill_contract_gap": "SKILL_CONTRACT_ERROR",
+    "data_pipeline_gap": "DATA_PIPELINE_ERROR",
+    "degraded_model_output": "MODEL_OUTPUT_DEGRADATION",
+    "orchestration_gap": "ORCHESTRATION_ERROR",
     "observed_error": "EXECUTION_RECOVERY_ERROR",
 }
 
@@ -34,6 +37,9 @@ PATCH_LAYERS_BY_FINDING = {
     "guardrail_gap": ["permission_policy", "runtime_enforcement", "eval"],
     "context_misuse": ["context_policy", "retrieval_policy", "eval"],
     "skill_contract_gap": ["skill", "system_prompt", "eval"],
+    "data_pipeline_gap": ["data_pipeline", "runtime_enforcement", "eval"],
+    "degraded_model_output": ["data_pipeline", "model_config", "runtime_enforcement", "eval"],
+    "orchestration_gap": ["runtime_orchestration", "routing_policy", "system_prompt", "eval"],
     "observed_error": ["runtime_orchestration", "tool_definition", "eval"],
 }
 
@@ -49,6 +55,8 @@ def promotable_finding(finding: HypothesisFinding) -> tuple[bool, list[str]]:
         reasons.append(f"judgeability is below {MIN_JUDGEABILITY:.2f}")
     if finding.finding_type not in ONTOLOGY_BY_FINDING:
         reasons.append("finding type has no issue mapping")
+    if finding.metadata.get("resolution_state") == "resolved_in_trace":
+        reasons.append("finding was resolved in the observed trace")
     if not finding.supporting_trace_evidence:
         reasons.append("trace evidence is missing")
     elif finding.metadata.get("model_supplied_trace_evidence") is not True:
@@ -87,6 +95,7 @@ def promote_findings(findings: list[HypothesisFinding]) -> list[Issue]:
                 }
             ],
             "violated_contracts": finding.metadata.get("violated_contracts") or [],
+            "resolution_state": finding.metadata.get("resolution_state") or "unknown",
             "calibration": {
                 "judge": finding.metadata.get("judge"),
                 "false_positive_risks": finding.metadata.get("false_positive_risks") or [],
@@ -151,6 +160,10 @@ def _failure_layer(finding_type: str) -> str:
         return "context_and_response"
     if finding_type == "skill_contract_gap":
         return "skill"
+    if finding_type == "data_pipeline_gap":
+        return "data_pipeline"
+    if finding_type == "degraded_model_output":
+        return "model"
     return "runtime"
 
 

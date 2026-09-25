@@ -353,7 +353,7 @@ The judge compares what should have happened according to the codebase, agent fl
 
 ## AI Hypothesis Judge
 
-`loopforge judge run` can also use a trace-level hypothesis judge. This is the primary path when there is no ground truth: the judge receives the interpreted user intent, final answer, tool sequence, execution steps, local fallback findings, judge plan, and compact codebase behavior map. It should return evidence-backed hypotheses or abstain.
+`loopforge judge run` can also use a trace-level hypothesis judge. This is the primary path when there is no ground truth. The calibrated judge derives required behavior from the request and relevant codebase contracts before inspecting the terminal outcome. It then evaluates response quality and latent system behavior independently, applies lifecycle-aware acceptance gates, and returns evidence-backed hypotheses or abstains.
 
 Recorded fixture for deterministic qualification:
 
@@ -379,6 +379,25 @@ redaction:
 The model-backed hypothesis judge replaces weak local lexical findings, while LoopForge preserves genuine structural findings such as missing trace coverage and runtime failures. Expected framework control-flow events, including LangGraph interaction interrupts, remain available as evidence but are not classified as failures. LoopForge also preserves the initiating user request separately from later clarification forms.
 
 A finding is promoted into the issue/eval/resolution loop only when it is model-backed, has confidence of at least `0.80`, has judgeability of at least `0.60`, includes expected and actual behavior, and cites both trace and codebase evidence. The drafted probabilistic evaluator remains non-blocking with `needs_model_calibration` status until labeled positive, negative, and abstention examples validate it. Weak and local findings remain hypotheses only.
+
+### Qualify the judge on stored traces
+
+Run a comparative evaluation before enabling judge-derived acceptance gates:
+
+```bash
+loopforge judge evaluate \
+  --model gpt-4.1-mini \
+  --review-model gpt-4.1 \
+  --workers 3 \
+  --timeout-seconds 120 \
+  --allow-external
+```
+
+Add `--trace-id TRACE_ID` more than once for a curated set, or use `--limit N`. LoopForge evaluates each variant independently, so one malformed response or timeout does not hide the other variant's result. It writes the full comparison to `.loopforge/reports/latest-judge-evaluation.json` and a timestamped local report.
+
+The report separates active findings from defects already resolved in the same trace. It also measures false positives, misses, evidence quality, codebase grounding, actionability, and variant failures. These metrics come from a stronger independent model review and are probabilistic, not labeled ground truth. Human review of disputed and high-impact examples remains required before a judge can block a release or trigger a patch.
+
+`--allow-external` is mandatory because the command sends recursively sanitized trace and codebase evidence to the configured endpoint. Run `loopforge redact preview` and confirm the model provider's data handling policy before using it with production traces.
 
 ## Common Problems
 

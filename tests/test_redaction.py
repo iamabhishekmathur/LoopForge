@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from loopforge.privacy.redaction import preview_redaction
+from loopforge.privacy.redaction import preview_redaction, sanitize_for_external_llm
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -85,3 +85,24 @@ def test_readiness_fails_when_redaction_finds_sensitive_values(tmp_path: Path) -
     assert readiness.returncode == 1
     assert "Redaction: `needs_review`" in readiness.stdout
     assert "Fail: redaction preview found sensitive-looking values" in readiness.stdout
+
+
+def test_external_llm_sanitizer_redacts_nested_secrets_and_identifiers() -> None:
+    result = sanitize_for_external_llm(
+        {
+            "headers": {"authorization": "Bearer abcdefghijklmnop"},
+            "customer": {
+                "email": "person@example.com",
+                "conversation_id": "d9d03bd7-c077-4275-b86b-827a37098f57",
+                "account": "00034F0C719AEC4CD2DFC9F2650F08D93D6309D6FC06B75CB6B3D09428586DCB",
+            },
+            "query": "show account trends",
+        }
+    )
+
+    assert result.value["headers"]["authorization"] == "[redacted:sensitive_key]"
+    assert result.value["customer"]["email"] == "[redacted:email]"
+    assert result.value["customer"]["conversation_id"] == "[redacted:uuid]"
+    assert result.value["customer"]["account"] == "[redacted:long_identifier]"
+    assert result.value["query"] == "show account trends"
+    assert result.replacement_count == 4

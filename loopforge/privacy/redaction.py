@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
-from typing import Iterable
+from typing import Any, Iterable
 
 from loopforge.adapters.registry import configured_trace_sources
 from loopforge.paths import LOCAL_DIR
@@ -20,6 +20,22 @@ PATTERNS = {
     "phone": re.compile(r"\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b"),
     "api_key": re.compile(r"\b(?:sk|pk|api|key|token)_[A-Za-z0-9_\-]{12,}\b"),
     "bearer_token": re.compile(r"\bBearer\s+[A-Za-z0-9._\-]{16,}\b", re.IGNORECASE),
+    "uuid": re.compile(
+        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
+        re.IGNORECASE,
+    ),
+    "long_identifier": re.compile(r"\b[0-9a-f]{32,}\b", re.IGNORECASE),
+}
+
+SENSITIVE_KEY_PARTS = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "cookie",
+    "password",
+    "secret",
+    "session_token",
+    "token",
 }
 
 
@@ -54,6 +70,57 @@ class RedactionPreview:
             "finding_count": self.finding_count,
             "findings": [finding.to_dict() for finding in self.findings],
         }
+
+
+@dataclass(frozen=True)
+class SanitizedPayload:
+    """A recursively sanitized value safe to review before external judging."""
+
+    value: Any
+    replacement_count: int
+    replacement_types: dict[str, int]
+
+
+def sanitize_for_external_llm(value: Any) -> SanitizedPayload:
+    """Redact secrets and stable identifiers while preserving trace semantics."""
+
+    counts: dict[str, int] = {}
+
+    def replace(item: Any, key: str | None = None) -> Any:
+        if key and _sensitive_key(key):
+            counts["sensitive_key"] = counts.get("sensitive_key", 0) + 1
+            return "[redacted:sensitive_key]"
+        if isinstance(item, dict):
+            return {str(k): replace(v, str(k)) for k, v in item.items()}
+        if isinstance(item, list):
+            return [replace(child) for child in item]
+        if isinstance(item, tuple):
+            return [replace(child) for child in item]
+        if not isinstance(item, str):
+            return item
+        sanitized = item
+        for kind, pattern in PATTERNS.items():
+            sanitized, count = pattern.subn(f"[redacted:{kind}]", sanitized)
+            if count:
+                counts[kind] = counts.get(kind, 0) + count
+        return sanitized
+
+    sanitized_value = replace(value)
+    return SanitizedPayload(
+        value=sanitized_value,
+        replacement_count=sum(counts.values()),
+        replacement_types=dict(sorted(counts.items())),
+    )
+
+
+def _sensitive_key(key: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "_", key.lower()).strip("_")
+    return any(
+        normalized == part
+        or normalized.startswith(part + "_")
+        or normalized.endswith("_" + part)
+        for part in SENSITIVE_KEY_PARTS
+    )
 
 
 def preview_redaction(root: Path, *, path_glob: str | None = None) -> RedactionPreview:

@@ -36,6 +36,7 @@ from .issues.resolution import build_resolution_plan, resolution_plan_markdown, 
 from .judging.behavior_map import build_behavior_map
 from .judging.hypothesis import judge_hypotheses
 from .judging.interpreter import interpret_trace
+from .judging.evaluation import evaluate_judge_variants
 from .judging.model_judge import build_hypothesis_judge_payload
 from .judging.runner import run_hypothesis_judging
 from .judging.planner import plan_judges
@@ -168,6 +169,54 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show the compact payload a model hypothesis judge would receive.",
     )
     judge_payload.add_argument("trace_id")
+    judge_evaluate = judge_subparsers.add_parser(
+        "evaluate",
+        help="Compare legacy and calibrated LLM judges on stored traces.",
+    )
+    judge_evaluate.add_argument("--limit", type=int, default=None, help="Limit traces evaluated.")
+    judge_evaluate.add_argument(
+        "--trace-id",
+        action="append",
+        default=None,
+        help="Evaluate one stored trace ID; repeat for multiple traces.",
+    )
+    judge_evaluate.add_argument(
+        "--model",
+        default="gpt-4.1-mini",
+        help="OpenAI-compatible model used for judging and adjudication.",
+    )
+    judge_evaluate.add_argument(
+        "--review-model",
+        default="gpt-4.1",
+        help="Stronger model used for criticism and independent adjudication.",
+    )
+    judge_evaluate.add_argument(
+        "--endpoint",
+        default="https://api.openai.com/v1/chat/completions",
+        help="OpenAI-compatible chat completions endpoint.",
+    )
+    judge_evaluate.add_argument(
+        "--api-key-env",
+        default="OPENAI_API_KEY",
+        help="Environment variable containing the API key.",
+    )
+    judge_evaluate.add_argument(
+        "--allow-external",
+        action="store_true",
+        help="Explicitly permit sending sanitized evidence to the configured model endpoint.",
+    )
+    judge_evaluate.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=180.0,
+        help="Timeout for each model request (default: 180 seconds).",
+    )
+    judge_evaluate.add_argument(
+        "--workers",
+        type=int,
+        default=3,
+        help="Evaluate traces concurrently with up to 8 workers (default: 3).",
+    )
 
     evidence = subparsers.add_parser("evidence", help="Archive and reduce trace evidence.")
     evidence_subparsers = evidence.add_subparsers(dest="evidence_command", required=True)
@@ -824,6 +873,48 @@ def command_judge_explain_payload(args: argparse.Namespace) -> int:
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
+
+
+def command_judge_evaluate(args: argparse.Namespace) -> int:
+    if not args.allow_external:
+        print(
+            "error: --allow-external is required; evaluation sends sanitized trace and codebase "
+            "evidence to the configured model endpoint",
+            file=sys.stderr,
+        )
+        return 2
+    root = require_project_root(Path.cwd())
+    result = evaluate_judge_variants(
+        root,
+        endpoint=args.endpoint,
+        model=args.model,
+        review_model=args.review_model,
+        api_key_env=args.api_key_env,
+        limit=args.limit,
+        trace_ids=args.trace_id,
+        timeout_seconds=args.timeout_seconds,
+        workers=args.workers,
+    )
+    print("Judge evaluation complete")
+    print(f"  traces: {result.trace_count}")
+    print(f"  completed: {result.completed_count}")
+    print(f"  failed: {result.failed_count}")
+    for variant in ("legacy", "calibrated"):
+        metrics = result.metrics[variant]
+        print(
+            f"  {variant}: flagged={metrics['flagged_traces']} "
+            f"active={metrics['active_flagged_traces']} "
+            f"resolved={metrics['resolved_findings']} "
+            f"variant_failures={metrics['variant_failures']} "
+            f"false_positives={metrics['false_positives']} "
+            f"missed_issues={metrics['missed_issues']} "
+            f"evidence={metrics['mean_evidence_quality']:.3f} "
+            f"grounding={metrics['mean_codebase_grounding']:.3f} "
+            f"actionability={metrics['mean_actionability']:.3f}"
+        )
+    print(f"  preferred: {result.metrics['preferred_variant']}")
+    print(f"  report: {result.report_path}")
+    return 0 if result.failed_count == 0 else 1
 
 
 def command_evidence_archive(_: argparse.Namespace) -> int:
@@ -2039,6 +2130,8 @@ def run(argv: list[str] | None = None) -> int:
         return command_judge_show(args)
     if args.command == "judge" and args.judge_command == "explain-payload":
         return command_judge_explain_payload(args)
+    if args.command == "judge" and args.judge_command == "evaluate":
+        return command_judge_evaluate(args)
     if args.command == "evidence" and args.evidence_command == "archive":
         return command_evidence_archive(args)
     if args.command == "evidence" and args.evidence_command == "list":

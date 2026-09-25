@@ -68,6 +68,8 @@ def _contract_for_artifact(artifact: HarnessArtifact) -> BehaviorContract | None
             "evidence": evidence,
             "signals": artifact.metadata.get("signals") or [],
             "anchors": artifact.metadata.get("anchors") or [],
+            "embedding_text": artifact.metadata.get("embedding_text"),
+            "tool_name": artifact.metadata.get("tool_name"),
+            "side_effect_class": artifact.metadata.get("side_effect_class"),
         },
     )
-

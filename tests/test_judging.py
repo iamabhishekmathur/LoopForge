@@ -1,14 +1,29 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 from loopforge.judging.behavior_map import build_behavior_map
+from loopforge.judging.context import select_relevant_contracts, select_trajectory_steps
 from loopforge.judging.interpreter import interpret_trace
-from loopforge.judging.model_judge import OpenAICompatibleHypothesisJudge
+from loopforge.judging.model_judge import (
+    HYPOTHESIS_JUDGE_ARBITER_PROMPT,
+    HYPOTHESIS_JUDGE_VERIFIER_PROMPT,
+    OpenAICompatibleHypothesisJudge,
+    _enforce_finding_scope,
+    _enforce_answer_requirement_references,
+    _loads_model_json,
+    _normalize_model_json_value,
+    build_hypothesis_judge_payload,
+    build_judge_review_packet,
+    build_judge_verification_packet,
+    build_trace_resolution_packet,
+)
 from loopforge.judging.planner import plan_judges
 from loopforge.judging.promotion import promote_findings, promotable_finding
 from loopforge.models.harness import HarnessArtifact
@@ -102,6 +117,44 @@ def test_model_finding_cannot_promote_with_loopforge_fallback_citations() -> Non
     assert eligible is False
     assert "trace evidence was not explicitly cited by the model" in reasons
     assert "codebase evidence was not explicitly cited by the model" in reasons
+
+
+def test_unresolved_latent_finding_can_promote_but_repaired_finding_cannot() -> None:
+    finding = HypothesisFinding(
+        finding_id="HF-latent",
+        trace_id="trace-1",
+        finding_type="degraded_model_output",
+        title="Model used fallback weights",
+        hypothesis="Training collapsed to one class and fallback weights replaced the model.",
+        severity="high",
+        confidence=0.95,
+        judgeability_score=0.9,
+        supporting_trace_evidence=[{"kind": "diagnosis", "value": "one class"}],
+        supporting_codebase_evidence=[
+            {
+                "contract_type": "tool_definition",
+                "source_path": "model.py",
+                "summary": "Train a two-class model.",
+            }
+        ],
+        missing_evidence=[],
+        recommended_next_action="Repair the training labels.",
+        metadata={
+            "judge": "openai_compatible",
+            "expected_behavior": "Train a two-class model.",
+            "actual_behavior": "Fallback weights were used.",
+            "resolution_state": "unresolved",
+            "model_supplied_trace_evidence": True,
+            "model_supplied_codebase_evidence": True,
+        },
+    )
+
+    assert promotable_finding(finding) == (True, [])
+    eligible, reasons = promotable_finding(
+        replace(finding, metadata={**finding.metadata, "resolution_state": "resolved_in_trace"})
+    )
+    assert eligible is False
+    assert "finding was resolved in the observed trace" in reasons
 
 
 def run_loopforge(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -291,6 +344,97 @@ def test_interpreter_extracts_langchain_human_messages() -> None:
     assert observed.user_intent == "what branches/centers have most at risk dollars and clients?"
     assert observed.final_response is not None
     assert "classified as high risk" in observed.final_response
+
+
+def test_interpreter_prefers_root_response_text_over_stale_history() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_root_response",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_message": "Was the change applied?"},
+            "outputs": {
+                "last_exchange": [
+                    {"type": "ai", "content": "Done, the change was applied."},
+                ],
+                "response_text": "The change has not been applied to the current version.",
+            },
+            "spans": [
+                {
+                    "span_id": "root",
+                    "type": "router",
+                    "name": "agent",
+                    "started_at": "2026-09-21T00:00:00Z",
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.final_response == "The change has not been applied to the current version."
+    assert observed.metadata["final_response_candidates"][0] == observed.final_response
+
+
+def test_interpreter_prefers_structured_terminal_diagnosis_over_intermediate_narration() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_structured_diagnosis",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_message": "Two hundred accounts out of how many?"},
+            "outputs": {
+                "messages": [
+                    {"type": "ai", "content": "Let me verify that."},
+                ],
+                "structured_response": {
+                    "likely_issue": "200 of 1,717 accounts were flagged.",
+                    "corrective_action": "Disclose that the scoring model used fallback weights.",
+                },
+            },
+            "spans": [
+                {
+                    "span_id": "root",
+                    "type": "router",
+                    "name": "diagnosis_agent",
+                    "started_at": "2026-09-21T00:00:00Z",
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.final_response is not None
+    assert "200 of 1,717" in observed.final_response
+    assert "fallback weights" in observed.final_response
+
+
+def test_interpreter_prefers_current_turn_input_over_stale_original_question() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_current_turn",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {
+                "user_message": "Repair the model training step.",
+                "original_question": "How large is the account population?",
+            },
+            "outputs": {"assistant_message": "The model training step was repaired."},
+            "spans": [
+                {
+                    "span_id": "root",
+                    "type": "router",
+                    "name": "agent",
+                    "started_at": "2026-09-21T00:00:00Z",
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.user_intent == "Repair the model training step."
 
 
 def test_interpreter_prefers_real_user_request_over_internal_human_prompt() -> None:
@@ -852,3 +996,292 @@ def test_hypothesis_llm_payload_includes_trace_plan_and_codebase_context() -> No
     assert payload["judge_plan"]["trace_id"] == "tr_payload"
     assert payload["behavior_map"]["contracts"][0]["source_path"] == "harness/router.md"
     assert "findings" in payload["output_contract"]
+
+
+def test_calibrated_payload_selects_relevant_contract_and_late_trajectory_evidence() -> None:
+    spans = [
+        {
+            "span_id": f"sp_{index}",
+            "type": "router",
+            "name": f"generic_{index}",
+            "started_at": f"2026-09-21T00:00:{index:02d}Z",
+            "input": {"value": index},
+            "output": {"value": index},
+        }
+        for index in range(40)
+    ]
+    spans[34].update(
+        {
+            "type": "tool_call",
+            "name": "cancel_account",
+            "input": {"account_id": "acct_1"},
+            "output": {"status": "cancelled"},
+        }
+    )
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_late_tool",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_message": "Cancel my account"},
+            "outputs": {"assistant_message": "Your account was cancelled."},
+            "spans": spans,
+        }
+    )
+    artifacts = [
+        HarnessArtifact(
+            artifact_id="weather",
+            artifact_type="tool_definition",
+            path="tools/weather.py",
+            confidence=0.9,
+            last_indexed_at="2026-09-21T00:00:00Z",
+            summary="Look up weather forecasts.",
+            metadata={"embedding_text": "Weather lookup accepts a city."},
+        ),
+        HarnessArtifact(
+            artifact_id="cancel",
+            artifact_type="permission_policy",
+            path="policies/cancellation.py",
+            confidence=0.95,
+            last_indexed_at="2026-09-21T00:00:00Z",
+            summary="Cancellation requires confirmation.",
+            metadata={
+                "embedding_text": "The cancel_account tool requires explicit confirmation."
+            },
+        ),
+    ]
+    observed = interpret_trace(trace)
+    behavior_map = build_behavior_map(artifacts)
+
+    contracts = select_relevant_contracts(observed, behavior_map, limit=2)
+    steps = select_trajectory_steps(observed, limit=12)
+
+    assert contracts[0].source_path == "policies/cancellation.py"
+    assert any(step.name == "cancel_account" for step in steps)
+
+
+def test_review_packet_preserves_resolved_terminal_and_latent_evidence() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_degraded_model",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_message": "How many accounts were scored?"},
+            "outputs": {"assistant_message": "There were 1,717."},
+            "spans": [
+                {
+                    "span_id": "diagnosis",
+                    "type": "tool_call",
+                    "name": "Diagnosis",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {"question": "Inspect model output"},
+                    "output": {
+                        "outcome_summary": (
+                            "The model used hard-coded fallback coefficients because training "
+                            "contained one class."
+                        )
+                    },
+                }
+            ],
+        }
+    )
+    observed = interpret_trace(trace)
+    behavior_map = build_behavior_map([])
+    plan = plan_judges(observed, behavior_map)
+    payload = build_hypothesis_judge_payload(observed, plan, behavior_map, [])
+    payload["observed_run"]["metadata"]["tool_actions"] = [
+        {
+            "name": "Diagnosis",
+            "outcome_summary": "The model used hard-coded fallback coefficients.",
+        }
+    ]
+    resolution = {
+        "resolved_user_intent": "Find the scored population.",
+        "resolved_terminal_outcome": "1,717 accounts; model fallback was used.",
+    }
+
+    packet = build_judge_review_packet(payload, interpretation=resolution)
+
+    assert packet["model_resolved_trace"] == resolution
+    assert packet["observed_run"]["metadata"]["tool_actions"]
+    assert "fallback" in json.dumps(packet)
+
+    verification = build_judge_verification_packet(packet)
+    assert "steps" not in verification["observed_run"]
+    assert verification["model_resolved_trace"] == resolution
+
+    resolver = build_trace_resolution_packet(payload)
+    assert resolver["trace_id"] == "tr_degraded_model"
+    assert "behavior_map" not in resolver
+    assert "terminal_tool_actions" in resolver
+
+
+def test_specialist_scope_is_authoritative() -> None:
+    payload = {
+        "abstain": False,
+        "findings": [{"title": "Fallback", "finding_scope": "agent_response"}],
+    }
+
+    normalized = _enforce_finding_scope(payload, "latent_system_failure")
+
+    assert normalized["findings"][0]["finding_scope"] == "latent_system_failure"
+
+
+def test_agent_response_findings_must_reference_required_answer_criteria() -> None:
+    interpretation = {
+        "answer_requirements": [
+            {"requirement_id": "R1", "necessity": "required"},
+            {"requirement_id": "R2", "necessity": "optional"},
+        ]
+    }
+    payload = {
+        "findings": [
+            {
+                "title": "Optional context omitted",
+                "finding_scope": "agent_response",
+                "violated_requirement_ids": ["R2"],
+            },
+            {
+                "title": "Model degraded",
+                "finding_scope": "latent_system_failure",
+            },
+        ]
+    }
+
+    gated = _enforce_answer_requirement_references(payload, interpretation)
+
+    assert [finding["title"] for finding in gated["findings"]] == ["Model degraded"]
+
+
+def test_eventual_deliverable_is_not_failed_during_expected_clarification() -> None:
+    interpretation = {
+        "outcome_kind": "clarification",
+        "outcome_complete": False,
+        "answer_requirements": [
+            {
+                "requirement_id": "R1",
+                "necessity": "required",
+                "fulfillment_timing": "after_interaction_or_execution",
+            },
+            {
+                "requirement_id": "R2",
+                "necessity": "required",
+                "fulfillment_timing": "before_side_effect",
+            },
+        ],
+    }
+    payload = {
+        "findings": [
+            {
+                "title": "Analysis not yet delivered",
+                "finding_scope": "agent_response",
+                "finding_type": "intent_mismatch",
+                "violated_requirement_ids": ["R1"],
+            },
+            {
+                "title": "Required consent skipped",
+                "finding_scope": "agent_response",
+                "finding_type": "missing_clarification",
+                "violated_requirement_ids": ["R2"],
+            },
+        ]
+    }
+
+    gated = _enforce_answer_requirement_references(payload, interpretation)
+
+    assert [finding["title"] for finding in gated["findings"]] == [
+        "Required consent skipped"
+    ]
+
+
+def test_final_arbiter_distinguishes_unmet_desire_from_system_failure() -> None:
+    assert "desired product state being absent is not itself a system failure" in (
+        HYPOTHESIS_JUDGE_ARBITER_PROMPT
+    )
+    assert "preserve a demonstrated defect" in HYPOTHESIS_JUDGE_ARBITER_PROMPT
+    assert "contains the requested answer" in HYPOTHESIS_JUDGE_VERIFIER_PROMPT
+    assert "intentional fallback does not make" in HYPOTHESIS_JUDGE_VERIFIER_PROMPT
+
+
+def test_model_request_retries_malformed_json(monkeypatch) -> None:
+    class FakeResponse:
+        def __init__(self, content: str) -> None:
+            self.payload = json.dumps(
+                {"choices": [{"message": {"content": content}}]}
+            ).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self) -> bytes:
+            return self.payload
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    judge = OpenAICompatibleHypothesisJudge(
+        endpoint="https://example.invalid/v1/chat/completions",
+        model="test-model",
+    )
+    responses = [
+        FakeResponse('{"findings":['),
+        FakeResponse('{"abstain":true,"reason":"valid retry"}'),
+    ]
+
+    with patch("loopforge.judging.model_judge.urlopen", side_effect=responses), patch(
+        "loopforge.judging.model_judge.time.sleep"
+    ):
+        result = judge._request_json("system", "{}")
+
+    assert result == {"abstain": True, "reason": "valid retry"}
+
+
+def test_model_json_repairs_invalid_code_backslashes() -> None:
+    parsed = _loads_model_json(
+        '{"finding":{"sql":"select \\user, \\d+ from accounts"}}'
+    )
+
+    assert parsed["finding"]["sql"] == "select \\user, \\d+ from accounts"
+
+
+def test_model_json_normalization_removes_control_characters() -> None:
+    assert _normalize_model_json_value({"text": "trained\u0006not fallback"}) == {
+        "text": "trained not fallback"
+    }
+
+
+def test_judge_payload_is_sanitized_before_external_request() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_sensitive",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_message": "Email person@example.com"},
+            "outputs": {"assistant_message": "Sent to person@example.com"},
+            "spans": [
+                {
+                    "span_id": "sp_1",
+                    "type": "tool_call",
+                    "name": "send_email",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {"authorization": "Bearer abcdefghijklmnop"},
+                    "output": {"status": "sent"},
+                }
+            ],
+        }
+    )
+    observed = interpret_trace(trace)
+    behavior_map = build_behavior_map([])
+    plan = plan_judges(observed, behavior_map)
+    judge = OpenAICompatibleHypothesisJudge(
+        endpoint="https://example.invalid/v1/chat/completions",
+        model="test-model",
+    )
+
+    payload = judge._user_payload(observed, plan, behavior_map, [])
+
+    assert "person@example.com" not in payload
+    assert "Bearer abcdefghijklmnop" not in payload
+    assert "[redacted:email]" in payload
+    assert "[redacted:bearer_token]" in payload
