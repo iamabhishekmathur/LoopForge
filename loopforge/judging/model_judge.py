@@ -213,11 +213,23 @@ class OpenAICompatibleHypothesisJudge:
             }
             evidence_packet["model_resolved_trace"] = interpretation
         payload_text = self._serialize_payload(evidence_packet)
-        response_draft = self._request_json(
-            HYPOTHESIS_JUDGE_SYSTEM_PROMPT,
-            payload_text,
-            operation="response_judge",
-        )
+        stage_errors: dict[str, str] = {}
+        try:
+            response_draft = self._request_json(
+                HYPOTHESIS_JUDGE_SYSTEM_PROMPT,
+                payload_text,
+                operation="response_judge",
+            )
+        except ValueError as exc:
+            if not self.review_model or self.review_model == self.model:
+                raise
+            stage_errors["response_judge"] = str(exc)
+            response_draft = self._request_json(
+                HYPOTHESIS_JUDGE_SYSTEM_PROMPT,
+                payload_text,
+                model=self.review_model,
+                operation="response_judge_fallback",
+            )
         coverage_draft: dict[str, Any] | None = None
         if self.payload_variant != "legacy":
             coverage_payload = {
@@ -225,11 +237,18 @@ class OpenAICompatibleHypothesisJudge:
                 "evidence_packet": build_judge_verification_packet(evidence_packet),
                 "output_contract": HYPOTHESIS_JUDGE_OUTPUT_CONTRACT,
             }
-            coverage_draft = self._request_json(
-                REQUIREMENT_COVERAGE_JUDGE_PROMPT,
-                self._serialize_payload(coverage_payload),
-                operation="requirement_coverage_judge",
-            )
+            try:
+                coverage_draft = self._request_json(
+                    REQUIREMENT_COVERAGE_JUDGE_PROMPT,
+                    self._serialize_payload(coverage_payload),
+                    operation="requirement_coverage_judge",
+                )
+            except ValueError as exc:
+                stage_errors["requirement_coverage_judge"] = str(exc)
+                coverage_draft = {
+                    "abstain": True,
+                    "reason": "Requirement coverage specialist failed; response judge retained.",
+                }
             coverage_draft = _enforce_finding_scope(coverage_draft, "agent_response")
             response_draft = _merge_same_scope_decisions(
                 response_draft,
@@ -238,11 +257,18 @@ class OpenAICompatibleHypothesisJudge:
             )
         latent_draft: dict[str, Any] | None = None
         if self.payload_variant != "legacy":
-            latent_draft = self._request_json(
-                LATENT_FAILURE_JUDGE_SYSTEM_PROMPT,
-                payload_text,
-                operation="latent_failure_judge",
-            )
+            try:
+                latent_draft = self._request_json(
+                    LATENT_FAILURE_JUDGE_SYSTEM_PROMPT,
+                    payload_text,
+                    operation="latent_failure_judge",
+                )
+            except ValueError as exc:
+                stage_errors["latent_failure_judge"] = str(exc)
+                latent_draft = {
+                    "abstain": True,
+                    "reason": "Latent-failure specialist failed; response judgment retained.",
+                }
         response_draft = _enforce_finding_scope(response_draft, "agent_response")
         if latent_draft is not None:
             latent_draft = _enforce_finding_scope(latent_draft, "latent_system_failure")
@@ -252,6 +278,7 @@ class OpenAICompatibleHypothesisJudge:
             "requirement_coverage_judge": coverage_draft,
             "latent_failure_judge": latent_draft,
             "merged": draft,
+            "stage_errors": stage_errors,
         }
         if not self.critic_enabled:
             return JudgeDecision(
@@ -943,10 +970,37 @@ def _loads_model_json(content: str) -> Any:
     try:
         return json.loads(content)
     except json.JSONDecodeError:
-        repaired = _escape_invalid_json_string_backslashes(content)
+        repaired = _escape_invalid_unicode_escapes(content)
+        repaired = _escape_invalid_json_string_backslashes(repaired)
         if repaired == content:
             raise
-        return json.loads(repaired)
+        return json.loads(repaired, strict=False)
+
+
+def _escape_invalid_unicode_escapes(content: str) -> str:
+    r"""Make odd invalid ``\u`` slash runs literal before general JSON repair."""
+
+    output: list[str] = []
+    index = 0
+    hex_digits = set("0123456789abcdefABCDEF")
+    while index < len(content):
+        if content[index] != "\\":
+            output.append(content[index])
+            index += 1
+            continue
+        run_end = index
+        while run_end < len(content) and content[run_end] == "\\":
+            run_end += 1
+        slash_count = run_end - index
+        invalid_unicode = False
+        if run_end < len(content) and content[run_end] == "u" and slash_count % 2 == 1:
+            digits = content[run_end + 1 : run_end + 5]
+            invalid_unicode = len(digits) != 4 or any(
+                digit not in hex_digits for digit in digits
+            )
+        output.append("\\" * (slash_count + int(invalid_unicode)))
+        index = run_end
+    return "".join(output)
 
 
 def _escape_invalid_json_string_backslashes(content: str) -> str:

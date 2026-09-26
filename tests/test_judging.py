@@ -1498,12 +1498,93 @@ def test_model_request_retries_malformed_json(monkeypatch) -> None:
     assert result == {"abstain": True, "reason": "valid retry"}
 
 
+def test_optional_specialist_failure_preserves_response_judgment() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_specialist_failure",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_message": "Run the approved report."},
+            "outputs": {"assistant_message": "Would you like me to run it?"},
+            "spans": [
+                {
+                    "span_id": "sp_1",
+                    "type": "agent",
+                    "name": "assistant",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {"message": "Run the approved report."},
+                    "output": {"message": "Would you like me to run it?"},
+                }
+            ],
+        }
+    )
+    observed = interpret_trace(trace)
+    behavior_map = build_behavior_map([])
+    plan = plan_judges(observed, behavior_map)
+    judge = OpenAICompatibleHypothesisJudge(
+        endpoint="https://example.invalid/v1/chat/completions",
+        model="test-model",
+        critic_enabled=False,
+        review_model="test-review-model",
+    )
+
+    def fake_request_json(_judge, *_args, operation: str, model=None, **_kwargs):
+        if operation == "intent_contract_resolver":
+            return {
+                "answer_requirements": [{"requirement_id": "R1", "criterion": "Run it."}],
+                "interaction_policy": {"mode": "deliver_now", "evidence_contract_ids": []},
+            }
+        if operation == "trace_resolver":
+            return {}
+        if operation == "response_judge":
+            raise ValueError("malformed primary response output")
+        if operation == "response_judge_fallback":
+            assert model == "test-review-model"
+            return {
+                "abstain": False,
+                "findings": [{"title": "Approved action was not executed"}],
+            }
+        if operation == "requirement_coverage_judge":
+            return {"abstain": True, "reason": "No additional finding."}
+        if operation == "latent_failure_judge":
+            raise ValueError("malformed optional specialist output")
+        raise AssertionError(f"unexpected operation: {operation}")
+
+    with patch.object(
+        OpenAICompatibleHypothesisJudge,
+        "_request_json",
+        new=fake_request_json,
+    ):
+        decision = judge.decide(observed, plan, behavior_map, [])
+
+    assert decision.payload["findings"] == [
+        {
+            "title": "Approved action was not executed",
+            "finding_scope": "agent_response",
+        }
+    ]
+    assert decision.draft_payload is not None
+    assert decision.draft_payload["stage_errors"] == {
+        "response_judge": "malformed primary response output",
+        "latent_failure_judge": "malformed optional specialist output",
+    }
+
+
 def test_model_json_repairs_invalid_code_backslashes() -> None:
     parsed = _loads_model_json(
         '{"finding":{"sql":"select \\user, \\d+ from accounts"}}'
     )
 
     assert parsed["finding"]["sql"] == "select \\user, \\d+ from accounts"
+
+
+def test_model_json_repairs_invalid_unicode_escape() -> None:
+    parsed = _loads_model_json(
+        '{"finding":{"path":"C:\\users\\docs","pattern":"\\u-not-unicode"}}'
+    )
+
+    assert parsed["finding"]["path"] == "C:\\users\\docs"
+    assert parsed["finding"]["pattern"] == "\\u-not-unicode"
 
 
 def test_model_json_normalization_removes_control_characters() -> None:
