@@ -19,13 +19,16 @@ from loopforge.judging.interpreter import interpret_trace
 from loopforge.judging.planner import plan_judges
 from loopforge.judging.promotion import promote_findings
 from loopforge.issues.materialize import materialize_issues
-from loopforge.traces.stitcher import stitch_traces
+from loopforge.traces.selection import select_judge_cases
 from loopforge.traces.quality import is_analysis_eligible_trace
 
 
 @dataclass(frozen=True)
 class JudgeRunResult:
+    input_trace_count: int
     trace_count: int
+    auxiliary_trace_count: int
+    excluded_trace_count: int
     behavior_artifact_count: int
     finding_count: int
     stored_count: int
@@ -52,13 +55,15 @@ def run_hypothesis_judging(
         trace_payloads = [
             payload for payload in all_trace_payloads if is_analysis_eligible_trace(payload)
         ]
-        if limit is not None:
-            trace_payloads = trace_payloads[:limit]
         artifact_payloads = store.list_harness_artifacts()
         artifacts = [HarnessArtifact.from_dict(payload) for payload in artifact_payloads]
         behavior_map = build_behavior_map(artifacts)
         selected_judge = judge or configured_hypothesis_judge(root)
-        traces = stitch_traces([Trace.from_dict(payload) for payload in trace_payloads])
+        selection = select_judge_cases([Trace.from_dict(payload) for payload in trace_payloads])
+        traces = selection.cases[:limit] if limit is not None else selection.cases
+        store.delete_hypothesis_findings_for_traces(
+            selection.auxiliary_trace_ids + selection.excluded_trace_ids
+        )
         for trace in traces:
             store.upsert_trace(trace.to_dict())
         store.delete_hypothesis_findings_for_traces([trace.trace_id for trace in traces])
@@ -93,7 +98,10 @@ def run_hypothesis_judging(
     finally:
         store.close()
     return JudgeRunResult(
+        input_trace_count=len(trace_payloads),
         trace_count=len(traces),
+        auxiliary_trace_count=len(selection.auxiliary_trace_ids),
+        excluded_trace_count=len(selection.excluded_trace_ids),
         behavior_artifact_count=len(artifacts),
         finding_count=len(findings),
         stored_count=len(findings),

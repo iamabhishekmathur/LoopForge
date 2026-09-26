@@ -325,9 +325,27 @@ loopforge judge evaluate \
 
 Use `--trace-id TRACE_ID` repeatedly for a curated sample, or `--limit N` for a broader qualification run. The command reports false positives, missed issues, evidence quality, codebase grounding, actionability, resolved findings, and per-variant failures. Detailed records are written locally to `.loopforge/reports/latest-judge-evaluation.json` and a timestamped report; they are not added to Git by LoopForge.
 
+For hosted LangSmith data, provider roots are not assumed to be independent user turns. LoopForge selects canonical user-facing cases, attaches correlated tool-only roots as evidence, and excludes unmatched internal roots from behavior judging. The command prints all four counts so a team can distinguish provider volume from actual evaluated cases.
+
 `--allow-external` is deliberately required. LoopForge recursively redacts secrets and common identifiers before sending compact trace and codebase evidence to the configured endpoint, but sanitized customer evidence still leaves the machine. Review `loopforge redact preview` and your provider's data policy first.
 
 The stronger review model is an independent probabilistic adjudicator, not ground truth. Use the report to find systematic judge weaknesses and compare variants, then review disputed examples with domain experts before making any evaluator or acceptance gate blocking.
+
+### Draft a code-grounded improvement plan
+
+Turn accepted findings into a non-mutating local resolution bundle:
+
+```bash
+loopforge improve plan \
+  --report .loopforge/reports/latest-judge-evaluation.json \
+  --model gpt-4.1 \
+  --review-model gpt-4.1 \
+  --allow-external
+```
+
+LoopForge clusters repeated findings by failure signature, follows traceback paths and symbols into the repository, and sends only sanitized finding and code evidence to the configured investigator. The investigator must produce competing root-cause hypotheses, exact ownership citations, the smallest recommended change, and a probabilistic regression evaluator with positive, negative, and abstention behavior.
+
+Deterministic gates verify that cited evidence IDs and repository paths exist, root-cause confidence is at least `0.80`, the evaluator contract is complete, and the source finding survived adjudication. Plans are written to `.loopforge/improvements/`; this command never edits customer code or applies a patch.
 
 ## Evidence Archive And Efficiency
 

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/improvement-plan.schema.json",
+  "title": "LoopForge Improvement Plan Bundle",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "generated_at",
+    "source_evaluation_report",
+    "mode",
+    "mutated_customer_code",
+    "cluster_count",
+    "reviewable_count",
+    "plans"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "bundle_id": {"type": "string", "minLength": 1},
+    "generated_at": {"type": "string"},
+    "source_evaluation_report": {"type": "string"},
+    "mode": {"type": "string", "const": "dry_run"},
+    "mutated_customer_code": {"type": "boolean", "const": false},
+    "cluster_count": {"type": "integer", "minimum": 0},
+    "reviewable_count": {"type": "integer", "minimum": 0},
+    "plans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "cluster_id",
+          "trace_ids",
+          "occurrence_count",
+          "status",
+          "patch_eligible",
+          "auto_apply",
+          "code_evidence",
+          "investigation",
+          "gates"
+        ],
+        "properties": {
+          "cluster_id": {"type": "string"},
+          "signature": {"type": "string"},
+          "trace_ids": {"type": "array", "items": {"type": "string"}},
+          "occurrence_count": {"type": "integer", "minimum": 1},
+          "status": {"type": "string", "enum": ["reviewable", "needs_human_review"]},
+          "patch_eligible": {"type": "boolean"},
+          "auto_apply": {"type": "boolean", "const": false},
+          "code_evidence": {"type": "array", "items": {"type": "object"}},
+          "investigation": {"type": "object"},
+          "gates": {"type": "array", "items": {"type": "object"}}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

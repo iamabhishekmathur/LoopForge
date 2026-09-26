@@ -29,6 +29,7 @@ from loopforge.judging.promotion import promote_findings, promotable_finding
 from loopforge.models.harness import HarnessArtifact
 from loopforge.models.hypothesis import HypothesisFinding
 from loopforge.models.trace import Trace
+from loopforge.traces.selection import select_judge_cases
 from loopforge.traces.stitcher import stitch_traces
 from loopforge.traces.quality import is_analysis_eligible_trace
 
@@ -774,6 +775,199 @@ def test_stitcher_does_not_inherit_stale_session_context() -> None:
     assert "stitching" not in stitched["tr_late_runtime"].metadata
 
 
+def test_judge_case_selection_attaches_auxiliary_trace_to_user_turn() -> None:
+    turn = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "turn",
+            "session_id": "session-1",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_query": "build a dashboard"},
+            "outputs": {"assistant_message": "Should I switch modes?"},
+            "spans": [
+                {
+                    "span_id": "turn-span",
+                    "type": "router",
+                    "name": "agent",
+                    "started_at": "2026-09-21T00:00:00Z",
+                    "input": {},
+                    "output": {},
+                }
+            ],
+            "metadata": {"source_id": "prod", "source_type": "langsmith"},
+        }
+    )
+    auxiliary = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "live-query",
+            "session_id": "session-1",
+            "started_at": "2026-09-21T00:00:10Z",
+            "inputs": {"parameters": {"product": "checking"}},
+            "outputs": {},
+            "spans": [
+                {
+                    "span_id": "query-span",
+                    "type": "router",
+                    "name": "live query",
+                    "started_at": "2026-09-21T00:00:10Z",
+                    "input": {"conversation_id": "conversation-1"},
+                    "output": {},
+                    "error": "TemplateBindError: unknown parameter",
+                }
+            ],
+            "metadata": {"source_id": "prod", "source_type": "langsmith"},
+        }
+    )
+
+    selection = select_judge_cases([auxiliary, turn])
+
+    assert [trace.trace_id for trace in selection.cases] == ["turn"]
+    assert selection.auxiliary_trace_ids == ["live-query"]
+    assert [span.span_id for span in selection.cases[0].spans] == [
+        "turn-span",
+        "query-span",
+    ]
+    assert selection.cases[0].metadata["judge_case"]["attached_auxiliary_trace_ids"] == [
+        "live-query"
+    ]
+
+
+def test_judge_case_selection_excludes_unmatched_tool_only_trace() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tool-only",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"sql": "select 1"},
+            "outputs": {"rows": 1},
+            "spans": [
+                {
+                    "span_id": "sql",
+                    "type": "tool_call",
+                    "name": "sql execution",
+                    "started_at": "2026-09-21T00:00:00Z",
+                    "input": {"sql": "select 1"},
+                    "output": {"rows": 1},
+                }
+            ],
+            "metadata": {"source_id": "prod", "source_type": "langsmith"},
+        }
+    )
+
+    selection = select_judge_cases([trace])
+
+    assert selection.cases == []
+    assert selection.excluded_trace_ids == ["tool-only"]
+
+
+def test_judge_case_selection_does_not_rejudge_persisted_auxiliary_trace() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "persisted-auxiliary",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"_loopforge_stitched_user_intent": "build a dashboard"},
+            "outputs": {"_loopforge_stitched_final_response": "Should I continue?"},
+            "spans": [
+                {
+                    "span_id": "query",
+                    "type": "tool_call",
+                    "name": "live query",
+                    "started_at": "2026-09-21T00:00:00Z",
+                    "input": {},
+                    "output": {},
+                }
+            ],
+            "metadata": {
+                "source_id": "prod",
+                "source_type": "langsmith",
+                "stitching": {
+                    "source_trace_id": "missing-canonical-turn",
+                    "inherited_evidence": ["user_intent", "final_response"],
+                },
+            },
+        }
+    )
+
+    selection = select_judge_cases([trace])
+
+    assert selection.cases == []
+    assert selection.excluded_trace_ids == ["persisted-auxiliary"]
+
+
+def test_judge_case_selection_resolves_auxiliary_attachment_chains() -> None:
+    def trace(trace_id: str, source_trace_id: str | None) -> Trace:
+        metadata: dict[str, object] = {
+            "source_id": "prod",
+            "source_type": "langsmith",
+        }
+        inputs: dict[str, object] = {"sql": "select 1"}
+        outputs: dict[str, object] = {}
+        if source_trace_id:
+            inputs["_loopforge_stitched_user_intent"] = "build a dashboard"
+            outputs["_loopforge_stitched_final_response"] = "Should I continue?"
+            metadata["stitching"] = {
+                "source_trace_id": source_trace_id,
+                "inherited_evidence": ["user_intent", "final_response"],
+            }
+        return Trace.from_dict(
+            {
+                "schema_version": "1",
+                "trace_id": trace_id,
+                "session_id": "session-1",
+                "started_at": "2026-09-21T00:00:00Z",
+                "inputs": inputs,
+                "outputs": outputs,
+                "spans": [
+                    {
+                        "span_id": f"{trace_id}-span",
+                        "type": "tool_call",
+                        "name": "live query",
+                        "started_at": "2026-09-21T00:00:00Z",
+                        "input": {},
+                        "output": {},
+                    }
+                ],
+                "metadata": metadata,
+            }
+        )
+
+    canonical = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "turn",
+            "session_id": "session-1",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"user_query": "build a dashboard"},
+            "outputs": {"assistant_message": "Should I continue?"},
+            "spans": [
+                {
+                    "span_id": "turn-span",
+                    "type": "router",
+                    "name": "agent",
+                    "started_at": "2026-09-21T00:00:00Z",
+                    "input": {},
+                    "output": {},
+                }
+            ],
+            "metadata": {"source_id": "prod", "source_type": "langsmith"},
+        }
+    )
+    middle = trace("middle", "turn")
+    leaf = trace("leaf", "middle")
+
+    selection = select_judge_cases([leaf, middle, canonical])
+
+    assert [item.trace_id for item in selection.cases] == ["turn"]
+    assert selection.auxiliary_trace_ids == ["leaf", "middle"]
+    assert {span.span_id for span in selection.cases[0].spans} == {
+        "turn-span",
+        "middle-span",
+        "leaf-span",
+    }
+
+
 def test_judge_cli_persists_hypothesis_findings(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -1192,6 +1386,73 @@ def test_eventual_deliverable_is_not_failed_during_expected_clarification() -> N
     assert [finding["title"] for finding in gated["findings"]] == [
         "Required consent skipped"
     ]
+
+
+def test_deliver_now_policy_preserves_unfulfilled_response_finding() -> None:
+    interpretation = {
+        "outcome_kind": "clarification",
+        "outcome_complete": False,
+        "interaction_policy": {
+            "mode": "deliver_now",
+            "evidence_contract_ids": ["routing-1"],
+        },
+        "answer_requirements": [
+            {
+                "requirement_id": "R1",
+                "necessity": "required",
+                "fulfillment_timing": "after_interaction_or_execution",
+            }
+        ],
+    }
+    payload = {
+        "findings": [
+            {
+                "title": "Execution was deferred",
+                "finding_scope": "agent_response",
+                "finding_type": "intent_mismatch",
+                "violated_requirement_ids": ["R1"],
+            }
+        ]
+    }
+
+    gated = _enforce_answer_requirement_references(payload, interpretation)
+
+    assert [finding["title"] for finding in gated["findings"]] == [
+        "Execution was deferred"
+    ]
+
+
+def test_confirmation_policy_blocks_premature_missing_deliverable_finding() -> None:
+    interpretation = {
+        "outcome_kind": "clarification",
+        "outcome_complete": False,
+        "interaction_policy": {
+            "mode": "confirmation_required",
+            "evidence_contract_ids": ["routing-1"],
+        },
+        "answer_requirements": [
+            {
+                "requirement_id": "R1",
+                "necessity": "required",
+                "fulfillment_timing": "after_interaction_or_execution",
+            }
+        ],
+    }
+    payload = {
+        "findings": [
+            {
+                "title": "Dashboard not delivered",
+                "finding_scope": "agent_response",
+                "finding_type": "final_answer_unfaithful",
+                "violated_requirement_ids": ["R1"],
+            }
+        ]
+    }
+
+    gated = _enforce_answer_requirement_references(payload, interpretation)
+
+    assert gated["abstain"] is True
+    assert gated["findings"] == []
 
 
 def test_final_arbiter_distinguishes_unmet_desire_from_system_failure() -> None:

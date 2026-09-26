@@ -88,7 +88,10 @@ def run_monitor_once(root: Path, window: str, trace_path: str | None) -> Monitor
             window=window,
             trace_path=result.trace_path,
             counts={
+                "provider_traces": result.provider_trace_count,
                 "traces": result.trace_count,
+                "auxiliary_traces": result.auxiliary_trace_count,
+                "excluded_traces": result.excluded_trace_count,
                 "trajectories": result.trajectory_count,
                 "artifacts": result.artifact_count,
                 "issues": result.issue_count,

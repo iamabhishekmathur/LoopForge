@@ -15,14 +15,17 @@ from loopforge.issues.materialize import materialize_issues
 from loopforge.issues.miner import mine_issues
 from loopforge.state.graph import build_harness_state_snapshot, write_harness_state_snapshot
 from loopforge.trajectories.builder import build_trajectory
-from loopforge.traces.stitcher import stitch_traces
+from loopforge.traces.selection import select_judge_cases
 
 
 @dataclass(frozen=True)
 class ShadowRunResult:
     window: str
     trace_path: str
+    provider_trace_count: int
     trace_count: int
+    auxiliary_trace_count: int
+    excluded_trace_count: int
     trajectory_count: int
     artifact_count: int
     issue_count: int
@@ -42,7 +45,9 @@ def run_shadow_pipeline(
         trace_path_override,
         since_override=trace_window_start(window),
     )
-    traces = stitch_traces(traces)
+    provider_trace_count = len(traces)
+    selection = select_judge_cases(traces)
+    traces = selection.cases
 
     store = Store.for_project(root)
     try:
@@ -80,7 +85,10 @@ def run_shadow_pipeline(
     return ShadowRunResult(
         window=window,
         trace_path=trace_path,
+        provider_trace_count=provider_trace_count,
         trace_count=len(traces),
+        auxiliary_trace_count=len(selection.auxiliary_trace_ids),
+        excluded_trace_count=len(selection.excluded_trace_ids),
         trajectory_count=len(trajectories),
         artifact_count=len(artifacts),
         issue_count=len(issues),

@@ -25,7 +25,7 @@ from loopforge.models.trace import Trace
 from loopforge.paths import LOCAL_DIR
 from loopforge.privacy.redaction import sanitize_for_external_llm
 from loopforge.traces.quality import is_analysis_eligible_trace
-from loopforge.traces.stitcher import stitch_traces
+from loopforge.traces.selection import select_judge_cases
 
 
 JUDGE_EVALUATOR_PROMPT = """You evaluate another LLM judge that reviews AI-agent traces without ground truth.
@@ -74,7 +74,10 @@ AUDIT_CONTRACT = {
 
 @dataclass(frozen=True)
 class JudgeEvaluationResult:
+    input_trace_count: int
     trace_count: int
+    auxiliary_trace_count: int
+    excluded_trace_count: int
     completed_count: int
     failed_count: int
     report_path: Path
@@ -101,9 +104,8 @@ def evaluate_judge_variants(
         if trace_ids:
             selected_ids = set(trace_ids)
             payloads = [payload for payload in payloads if payload["trace_id"] in selected_ids]
-        if limit is not None:
-            payloads = payloads[:limit]
-        traces = stitch_traces([Trace.from_dict(payload) for payload in payloads])
+        selection = select_judge_cases([Trace.from_dict(payload) for payload in payloads])
+        traces = selection.cases[:limit] if limit is not None else selection.cases
         artifacts = [HarnessArtifact.from_dict(item) for item in store.list_harness_artifacts()]
     finally:
         store.close()
@@ -214,7 +216,15 @@ def evaluate_judge_variants(
         "model": model,
         "review_model": review_model or model,
         "workers": worker_count,
+        "input_trace_count": len(payloads),
         "trace_count": len(traces),
+        "trace_selection": {
+            "canonical_case_count": len(selection.cases),
+            "auxiliary_trace_count": len(selection.auxiliary_trace_ids),
+            "excluded_trace_count": len(selection.excluded_trace_ids),
+            "auxiliary_trace_ids": selection.auxiliary_trace_ids,
+            "excluded_trace_ids": selection.excluded_trace_ids,
+        },
         "metrics": metrics,
         "records": records,
         "limitations": [
@@ -230,7 +240,10 @@ def evaluate_judge_variants(
     latest_path = report_dir / "latest-judge-evaluation.json"
     latest_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     return JudgeEvaluationResult(
+        input_trace_count=len(payloads),
         trace_count=len(traces),
+        auxiliary_trace_count=len(selection.auxiliary_trace_ids),
+        excluded_trace_count=len(selection.excluded_trace_ids),
         completed_count=sum(record["status"] == "complete" for record in records),
         failed_count=sum(record["status"] == "failed" for record in records),
         report_path=report_path,

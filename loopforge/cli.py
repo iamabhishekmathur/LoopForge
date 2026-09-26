@@ -33,6 +33,10 @@ from .evidence.reducer import (
 )
 from .issues.report import issue_report_markdown, write_issue_report
 from .issues.resolution import build_resolution_plan, resolution_plan_markdown, write_resolution_plan
+from .improvements.planner import (
+    OpenAICompatibleResolutionInvestigator,
+    build_improvement_plan,
+)
 from .judging.behavior_map import build_behavior_map
 from .judging.hypothesis import judge_hypotheses
 from .judging.interpreter import interpret_trace
@@ -216,6 +220,48 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=3,
         help="Evaluate traces concurrently with up to 8 workers (default: 3).",
+    )
+
+    improve = subparsers.add_parser(
+        "improve",
+        help="Create code-grounded, non-mutating improvement plans from judge reports.",
+    )
+    improve_subparsers = improve.add_subparsers(dest="improve_command", required=True)
+    improve_plan = improve_subparsers.add_parser(
+        "plan",
+        help="Investigate accepted findings and write a gated local improvement bundle.",
+    )
+    improve_plan.add_argument(
+        "--report",
+        default=".loopforge/reports/latest-judge-evaluation.json",
+        help="Judge evaluation report to investigate.",
+    )
+    improve_plan.add_argument("--model", default="gpt-4.1", help="Investigator model.")
+    improve_plan.add_argument(
+        "--review-model",
+        default="gpt-4.1",
+        help="Independent plan-verification model.",
+    )
+    improve_plan.add_argument(
+        "--endpoint",
+        default="https://api.openai.com/v1/chat/completions",
+        help="OpenAI-compatible chat completions endpoint.",
+    )
+    improve_plan.add_argument(
+        "--api-key-env",
+        default="OPENAI_API_KEY",
+        help="Environment variable containing the API key.",
+    )
+    improve_plan.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=180.0,
+        help="Timeout for each model request (default: 180 seconds).",
+    )
+    improve_plan.add_argument(
+        "--allow-external",
+        action="store_true",
+        help="Explicitly permit sending sanitized findings and code evidence to the endpoint.",
     )
 
     evidence = subparsers.add_parser("evidence", help="Archive and reduce trace evidence.")
@@ -718,7 +764,10 @@ def command_shadow(args: argparse.Namespace) -> int:
         return 1
 
     print(f"Shadow run complete for window {args.last}")
+    print(f"  provider_traces: {result.provider_trace_count}")
     print(f"  traces: {result.trace_count}")
+    print(f"  auxiliary_attached: {result.auxiliary_trace_count}")
+    print(f"  excluded_non_user_traces: {result.excluded_trace_count}")
     print(f"  trajectories: {result.trajectory_count}")
     print(f"  artifacts: {result.artifact_count}")
     print(f"  issues: {result.issue_count}")
@@ -801,7 +850,10 @@ def command_judge_run(args: argparse.Namespace) -> int:
     root = require_project_root(Path.cwd())
     result = run_hypothesis_judging(root, limit=args.limit)
     print("Hypothesis judging complete")
+    print(f"  provider_traces: {result.input_trace_count}")
     print(f"  traces: {result.trace_count}")
+    print(f"  auxiliary_attached: {result.auxiliary_trace_count}")
+    print(f"  excluded_non_user_traces: {result.excluded_trace_count}")
     print(f"  behavior_artifacts: {result.behavior_artifact_count}")
     print(f"  findings: {result.finding_count}")
     print(f"  promoted_issues: {result.promoted_issue_count}")
@@ -896,7 +948,10 @@ def command_judge_evaluate(args: argparse.Namespace) -> int:
         workers=args.workers,
     )
     print("Judge evaluation complete")
+    print(f"  provider_traces: {result.input_trace_count}")
     print(f"  traces: {result.trace_count}")
+    print(f"  auxiliary_attached: {result.auxiliary_trace_count}")
+    print(f"  excluded_non_user_traces: {result.excluded_trace_count}")
     print(f"  completed: {result.completed_count}")
     print(f"  failed: {result.failed_count}")
     for variant in ("legacy", "calibrated"):
@@ -915,6 +970,39 @@ def command_judge_evaluate(args: argparse.Namespace) -> int:
     print(f"  preferred: {result.metrics['preferred_variant']}")
     print(f"  report: {result.report_path}")
     return 0 if result.failed_count == 0 else 1
+
+
+def command_improve_plan(args: argparse.Namespace) -> int:
+    if not args.allow_external:
+        print(
+            "error: --allow-external is required; planning sends sanitized findings and "
+            "code evidence to the configured model endpoint",
+            file=sys.stderr,
+        )
+        return 2
+    root = require_project_root(Path.cwd())
+    report = Path(args.report)
+    if not report.is_absolute():
+        report = root / report
+    if not report.is_file():
+        print(f"error: evaluation report not found: {report}", file=sys.stderr)
+        return 1
+    investigator = OpenAICompatibleResolutionInvestigator(
+        endpoint=args.endpoint,
+        model=args.model,
+        review_model=args.review_model,
+        api_key_env=args.api_key_env,
+        timeout_seconds=args.timeout_seconds,
+    )
+    result = build_improvement_plan(root, report, investigator)
+    print("Improvement planning complete")
+    print(f"  bundle: {result.bundle_id}")
+    print(f"  clusters: {result.cluster_count}")
+    print(f"  reviewable: {result.reviewable_count}")
+    print(f"  report: {result.report_path}")
+    print(f"  summary: {result.markdown_path}")
+    print("  customer_code_modified: false")
+    return 0
 
 
 def command_evidence_archive(_: argparse.Namespace) -> int:
@@ -1135,7 +1223,9 @@ def _monitor_run_summary(run: MonitorRun) -> str:
     counts = run.counts
     summary = (
         f"Monitor run {run.run_id}: {run.status} "
-        f"traces={counts.get('traces', 0)} issues={counts.get('issues', 0)} "
+        f"provider_traces={counts.get('provider_traces', counts.get('traces', 0))} "
+        f"traces={counts.get('traces', 0)} "
+        f"issues={counts.get('issues', 0)} "
         f"evals={counts.get('evals', 0)} validations={counts.get('validations', 0)} "
         f"resolutions={counts.get('resolutions', 0)}"
     )
@@ -2132,6 +2222,8 @@ def run(argv: list[str] | None = None) -> int:
         return command_judge_explain_payload(args)
     if args.command == "judge" and args.judge_command == "evaluate":
         return command_judge_evaluate(args)
+    if args.command == "improve" and args.improve_command == "plan":
+        return command_improve_plan(args)
     if args.command == "evidence" and args.evidence_command == "archive":
         return command_evidence_archive(args)
     if args.command == "evidence" and args.evidence_command == "list":

@@ -395,9 +395,25 @@ loopforge judge evaluate \
 
 Add `--trace-id TRACE_ID` more than once for a curated set, or use `--limit N`. LoopForge evaluates each variant independently, so one malformed response or timeout does not hide the other variant's result. It writes the full comparison to `.loopforge/reports/latest-judge-evaluation.json` and a timestamped local report.
 
+LangSmith root runs may include standalone tool executions. LoopForge evaluates canonical user-facing cases only, attaching correlated tool roots as child evidence instead of treating them as independent user interactions. Evaluation output includes provider, canonical, attached-auxiliary, and excluded-root counts.
+
 The report separates active findings from defects already resolved in the same trace. It also measures false positives, misses, evidence quality, codebase grounding, actionability, and variant failures. These metrics come from a stronger independent model review and are probabilistic, not labeled ground truth. Human review of disputed and high-impact examples remains required before a judge can block a release or trigger a patch.
 
 `--allow-external` is mandatory because the command sends recursively sanitized trace and codebase evidence to the configured endpoint. Run `loopforge redact preview` and confirm the model provider's data handling policy before using it with production traces.
+
+### Create a dry-run improvement bundle
+
+After reviewing judge quality, investigate accepted findings against the codebase:
+
+```bash
+loopforge improve plan \
+  --report .loopforge/reports/latest-judge-evaluation.json \
+  --model gpt-4.1 \
+  --review-model gpt-4.1 \
+  --allow-external
+```
+
+The command clusters repeated failures, resolves traceback paths and symbols against repository files, and asks an independent investigator and verifier to draft a root cause, competing explanations, exact ownership, a recommended change, and a regression evaluator. Citation, confidence, evaluator-completeness, and adjudication gates determine whether each plan is reviewable. Results remain local in `.loopforge/improvements/`, and customer code is never modified.
 
 ## Common Problems
 

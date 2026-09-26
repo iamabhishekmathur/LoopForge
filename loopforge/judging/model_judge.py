@@ -168,6 +168,9 @@ class OpenAICompatibleHypothesisJudge:
                         "current_turn_candidates": resolver_packet.get(
                             "current_turn_candidates"
                         ),
+                        "relevant_behavior_contracts": list(
+                            (evidence_packet.get("behavior_map") or {}).get("contracts") or []
+                        )[:12],
                     }
                 ),
                 model=self.review_model,
@@ -201,6 +204,13 @@ class OpenAICompatibleHypothesisJudge:
             interpretation["answer_requirements"] = intent_contract.get(
                 "answer_requirements"
             ) or []
+            interpretation["interaction_policy"] = intent_contract.get(
+                "interaction_policy"
+            ) or {
+                "mode": "ambiguous",
+                "evidence_contract_ids": [],
+                "rationale": "No authoritative interaction policy was resolved.",
+            }
             evidence_packet["model_resolved_trace"] = interpretation
         payload_text = self._serialize_payload(evidence_packet)
         response_draft = self._request_json(
@@ -560,7 +570,9 @@ Set resolution_state for every finding. Use resolved_in_trace when the trace its
 
 INTENT_CONTRACT_SYSTEM_PROMPT = """You define the minimum sufficient answer contract for one current user turn.
 
-Use only observed_user_intent and current_turn_candidates. You do not have the later trace outcome and must not invent requirements based on facts the agent might discover. Split requirements into atomic criteria. Mark a criterion required only when the user explicitly asks for it or it is logically necessary to answer the request; mark useful extra context optional. Assign fulfillment_timing: immediate for a direct answer that should be returned now, after_interaction_or_execution for an analysis, generated artifact, mission run, or other task that may legitimately require tools or user inputs, and before_side_effect only for a clarification or confirmation logically required before an action. A bare analysis or mission name is a request to perform that task, not a request to explain its name, unless the user asks what it is. When the current turn already contains an affirmative answer to a prior confirmation question, do not require the agent to ask for or echo that confirmation again. For a ranked, selected, filtered, or scored subset, the eligible selection population is the operational denominator. A broader raw or ineligible population is optional unless the user explicitly asks for the full raw universe. Do not require caveats, diagnostics, explanations, or remediation that the current request did not ask for.
+Use observed_user_intent, current_turn_candidates, and relevant_behavior_contracts. You do not have the later trace outcome and must not invent requirements based on facts the agent might discover. Split requirements into atomic criteria. Mark a criterion required only when the user explicitly asks for it or it is logically necessary to answer the request; mark useful extra context optional. Assign fulfillment_timing: immediate for a direct answer that should be returned now, after_interaction_or_execution for an analysis, generated artifact, mission run, or other task that may legitimately require tools or user inputs, and before_side_effect only for a clarification or confirmation logically required before an action. A bare analysis or mission name is a request to perform that task, not a request to explain its name, unless the user asks what it is. When the current turn already contains an affirmative answer to a prior confirmation question, do not require the agent to ask for or echo that confirmation again. For a ranked, selected, filtered, or scored subset, the eligible selection population is the operational denominator. A broader raw or ineligible population is optional unless the user explicitly asks for the full raw universe. Do not require caveats, diagnostics, explanations, or remediation that the current request did not ask for.
+
+Resolve one frozen interaction_policy before the outcome is visible. Use confirmation_required only when a cited behavior contract explicitly requires confirmation before this action. Use confirmation_allowed when cited contracts explicitly permit a pause but do not require one. Use deliver_now when the request and cited contracts require execution or an answer without another confirmation. Use ambiguous when the contracts conflict or do not establish the lifecycle. Cite only supplied contract IDs. An affirmative current turn normally makes the policy deliver_now unless a separate confirmation is explicitly required by contract.
 
 Return at most five requirements. Use stable IDs R1 through R5. Return JSON only.
 """
@@ -575,7 +587,12 @@ INTENT_CONTRACT_OUTPUT_CONTRACT = {
             "fulfillment_timing": "immediate|after_interaction_or_execution|before_side_effect",
             "basis": "short explanation grounded only in the current request",
         }
-    ]
+    ],
+    "interaction_policy": {
+        "mode": "deliver_now|confirmation_required|confirmation_allowed|ambiguous",
+        "evidence_contract_ids": ["contract id from relevant_behavior_contracts"],
+        "rationale": "short explanation grounded in the current request and cited contracts",
+    },
 }
 
 
@@ -1081,6 +1098,8 @@ def _enforce_answer_requirement_references(
     findings = payload.get("findings")
     if not isinstance(findings, list):
         return payload
+    interaction_policy = (interpretation or {}).get("interaction_policy") or {}
+    interaction_mode = str(interaction_policy.get("mode") or "ambiguous")
     accepted: list[dict[str, Any]] = []
     for finding in findings:
         if not isinstance(finding, dict):
@@ -1105,6 +1124,7 @@ def _enforce_answer_requirement_references(
             finding.get("finding_type") in {"intent_mismatch", "final_answer_unfaithful"}
             and outcome_kind in {"clarification", "control_flow_pause"}
             and not outcome_complete
+            and interaction_mode != "deliver_now"
             and all(
                 requirement.get("fulfillment_timing") == "after_interaction_or_execution"
                 for requirement in cited_required
