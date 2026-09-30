@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/search-session.schema.json",
+  "title": "LoopForge Search Session",
+  "type": "object",
+  "required": ["schema_version", "session_id", "issue_id", "baseline_state_id", "status", "created_at", "updated_at", "max_rounds", "candidates_per_round", "proposer_id", "evaluator_id"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "session_id": {"type": "string"}, "issue_id": {"type": "string"},
+    "baseline_state_id": {"type": "string"}, "status": {"type": "string"},
+    "created_at": {"type": "string"}, "updated_at": {"type": "string"},
+    "max_rounds": {"type": "integer"}, "candidates_per_round": {"type": "integer"},
+    "proposer_id": {"type": "string"}, "evaluator_id": {"type": "string"},
+    "search_case_ids": {"type": "array"}, "control_case_ids": {"type": "array"},
+    "holdout_case_ids": {"type": "array"}, "promoted_candidate_id": {"type": ["string", "null"]},
+    "metadata": {"type": "object"}
+  }
+}

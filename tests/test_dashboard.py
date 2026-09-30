@@ -84,3 +84,41 @@ def test_dashboard_build_writes_fixture_html(tmp_path: Path) -> None:
     assert "Confirmation Reports" in html
     assert "Refiner Queue" in html
     assert "Harness States" in html
+
+
+def test_dashboard_renders_experiment_lineage_and_timeline() -> None:
+    html = render_dashboard(
+        {
+            "project_root": "/repo",
+            "search_sessions": [{"session_id": "SEARCH-1", "status": "completed"}],
+            "experiment_candidates": [
+                {
+                    "candidate_id": "CANDIDATE-1",
+                    "session_id": "SEARCH-1",
+                    "status": "verified",
+                }
+            ],
+            "candidate_evaluations": [
+                {
+                    "candidate_id": "CANDIDATE-1",
+                    "metadata": {"staged_holdout": True},
+                    "objectives": {"quality": 0.9, "issue_resolution": 0.8},
+                }
+            ],
+            "pareto_snapshots": [
+                {"session_id": "SEARCH-1", "candidate_ids": ["CANDIDATE-1"]}
+            ],
+            "search_events": [
+                {
+                    "session_id": "SEARCH-1",
+                    "event_type": "candidate_evaluated",
+                    "candidate_id": "CANDIDATE-1",
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+        }
+    )
+    assert "Harness Experiments" in html
+    assert "CANDIDATE-1" in html
+    assert "frontier" in html
+    assert "candidate_evaluated" in html

@@ -56,6 +56,7 @@ def test_run_gates_accepts_grounded_patch_with_validated_eval() -> None:
         "diff_preview",
         "evaluator_validation",
         "replay_sandbox",
+        "experiment_verification",
         "patch_concentration",
     }
 

@@ -11,7 +11,7 @@ The goal is simple: make agent teams closed-loop by default.
 Most agent teams already have some combination of logs, traces, prompt files, tool definitions, and evals. The hard part is connecting them into a reliable improvement loop:
 
 ```text
-monitor traces -> discover harness -> failure issue -> diagnosed root cause -> candidate harness patch -> eval coverage -> gate -> PR -> rollout -> monitor
+monitor traces -> discover harness -> diagnose -> search competing harness candidates -> verified frontier -> gate -> PR -> rollout -> monitor
 ```
 
 Today that loop is usually manual. Engineers inspect traces, guess at prompt or tool changes, hand-write a few evals, and hope the next model launch does not break the harness in a new way.
@@ -72,7 +72,9 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 ## Reference
 - [Trace Source Setup](docs/trace-source-setup.md)
 - [Confirmation Report Schema](schemas/confirmation-report.schema.json)
+- [Candidate Evaluation Schema](schemas/candidate-evaluation.schema.json)
 - [Eval Example Schema](schemas/eval-example.schema.json)
+- [Experiment Candidate Schema](schemas/experiment-candidate.schema.json)
 - [Evaluator Definition Schema](schemas/evaluator-definition.schema.json)
 - [Evaluator Validation Schema](schemas/evaluator-validation.schema.json)
 - [Failure Diagnosis Schema](schemas/failure-diagnosis.schema.json)
@@ -83,6 +85,7 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Issue Schema](schemas/issue.schema.json)
 - [Monitor Run Schema](schemas/monitor-run.schema.json)
 - [Patch Bundle Schema](schemas/patch-bundle.schema.json)
+- [Pareto Snapshot Schema](schemas/pareto-snapshot.schema.json)
 - [PR Artifact Schema](schemas/pr-artifact.schema.json)
 - [Redaction Preview Schema](schemas/redaction-preview.schema.json)
 - [Refinement Operation Schema](schemas/refinement-operation.schema.json)
@@ -90,6 +93,8 @@ The project can also adapt to existing layouts. Teams should not have to reorgan
 - [Replay Report Schema](schemas/replay-report.schema.json)
 - [Resolution Plan Schema](schemas/resolution-plan.schema.json)
 - [Runtime Harness Manifest Schema](schemas/runtime-harness-manifest.schema.json)
+- [Search Event Schema](schemas/search-event.schema.json)
+- [Search Session Schema](schemas/search-session.schema.json)
 - [Trace Schema](schemas/trace.schema.json)
 - [Trace Sync State Schema](schemas/trace-sync-state.schema.json)
 - [Trace Trajectory Schema](schemas/trace-trajectory.schema.json)
@@ -242,6 +247,81 @@ loopforge pr --dry-run PATCH-0001
 ```
 
 The right first outcome is not automatic mutation. It is a trace-backed issue, a grounded harness patch, a drafted regression eval, gates, and a reviewable PR artifact.
+
+## Verified Harness Search
+
+LoopForge can turn a qualified issue into a controlled search over competing harness changes. The
+proposer may inspect complete search and control traces, source files, prior candidates, and prior
+evaluations. Hidden holdout traces are enforced behind an evaluator-only boundary.
+
+Each candidate is executed in an isolated repository copy and judged against the unchanged
+baseline. LoopForge repeats blinded pairwise judgments with response-order reversal, rejects
+unstable or abstaining results, blocks control regressions, and retains the non-dominated candidates
+across quality, issue resolution, safety, cost, latency, and tool use.
+
+Configure a replay command in `loopforge.yaml`:
+
+```yaml
+redaction:
+  external_llm_allowed: true
+
+search:
+  max_rounds: 3
+  candidates_per_round: 3
+  judge_repetitions: 3
+  execution_command: "python tools/loopforge_replay.py"
+  proposer_model: gpt-4.1
+  evaluator_model: gpt-4.1-mini
+```
+
+The replay command receives one normalized trace case as JSON on stdin. It must print one JSON
+object on stdout:
+
+```json
+{
+  "output": {"final_response": "..."},
+  "trace": {"spans": []},
+  "metrics": {"cost_usd": 0.01, "latency_ms": 1200, "tool_calls": 2},
+  "sandbox": {"side_effects_virtualized": true}
+}
+```
+
+The process receives `LOOPFORGE_REPLAY_MODE=isolated` and
+`LOOPFORGE_DISABLE_SIDE_EFFECTS=1`. It does not inherit API keys or `.env` files. The adapter fails
+closed unless the replay command confirms that external side effects were replaced with recorded
+or sandboxed tools.
+
+Start a search after issue qualification:
+
+```bash
+loopforge search start ISSUE-0001
+loopforge search list
+loopforge search show SEARCH-ID
+loopforge search frontier SEARCH-ID
+loopforge search compare CANDIDATE-A CANDIDATE-B
+```
+
+When `search.auto_run_search` is enabled, external LLM access is approved, and an execution command
+is configured, the normal monitor/refiner queue launches this search automatically for qualified
+issues. It records an abstention instead of drafting an unverified patch when search cannot complete.
+
+No candidate is applied to the customer working tree. Candidate source, raw executions, repeated
+judge decisions, holdout verification, lineage, and frontier history remain under
+`.loopforge/experiments/`. Promote a verified frontier candidate into the existing human-review
+workflow explicitly:
+
+Later sessions can inspect earlier candidate hypotheses, source changes, and proposer-visible
+results as transferable experience. Hidden holdout cases and their case-level outcomes remain
+evaluator-only across sessions.
+
+```bash
+loopforge search promote SEARCH-ID CANDIDATE-ID
+loopforge gate PATCH-CANDIDATE-ID
+loopforge pr --dry-run PATCH-CANDIDATE-ID
+```
+
+Promotion preserves the actual sandbox execution report. It does not fall back to diff-text
+simulation, and it still requires the normal evaluator, review, rollout, and confirmation gates.
 
 ## AI Issue Judge
 

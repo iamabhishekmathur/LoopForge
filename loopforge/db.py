@@ -183,6 +183,67 @@ create table if not exists refiner_queue (
   finished_at text,
   payload_json text not null
 );
+
+create table if not exists search_sessions (
+  session_id text primary key,
+  issue_id text not null,
+  status text not null,
+  created_at text not null,
+  updated_at text not null,
+  payload_json text not null,
+  foreign key(issue_id) references issues(issue_id)
+);
+
+create table if not exists experiment_cases (
+  case_id text primary key,
+  session_id text not null,
+  trace_id text not null,
+  split text not null,
+  created_at text not null,
+  payload_json text not null,
+  foreign key(session_id) references search_sessions(session_id)
+);
+
+create table if not exists experiment_candidates (
+  candidate_id text primary key,
+  session_id text not null,
+  round_number integer not null,
+  status text not null,
+  created_at text not null,
+  payload_json text not null,
+  foreign key(session_id) references search_sessions(session_id)
+);
+
+create table if not exists candidate_evaluations (
+  evaluation_id text primary key,
+  session_id text not null,
+  candidate_id text not null,
+  split text not null,
+  status text not null,
+  created_at text not null,
+  payload_json text not null,
+  foreign key(session_id) references search_sessions(session_id),
+  foreign key(candidate_id) references experiment_candidates(candidate_id)
+);
+
+create table if not exists pareto_snapshots (
+  snapshot_id text primary key,
+  session_id text not null,
+  round_number integer not null,
+  created_at text not null,
+  payload_json text not null,
+  foreign key(session_id) references search_sessions(session_id)
+);
+
+create table if not exists search_events (
+  event_id text primary key,
+  session_id text not null,
+  candidate_id text,
+  event_type text not null,
+  created_at text not null,
+  payload_json text not null,
+  foreign key(session_id) references search_sessions(session_id)
+);
 """
 
 
@@ -724,6 +785,13 @@ class Store:
         ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
 
+    def get_replay_report_for_patch(self, patch_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from replay_reports where patch_id = ? order by replay_id desc",
+            (patch_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
     def upsert_pr_artifact(self, pr_artifact: dict[str, Any]) -> None:
         self.connection.execute(
             """
@@ -908,3 +976,196 @@ class Store:
             """
         ).fetchone()
         return json.loads(row["payload_json"]) if row else None
+
+    def upsert_search_session(self, session: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into search_sessions(
+              session_id, issue_id, status, created_at, updated_at, payload_json
+            ) values (?, ?, ?, ?, ?, ?)
+            on conflict(session_id) do update set
+              status=excluded.status,
+              updated_at=excluded.updated_at,
+              payload_json=excluded.payload_json
+            """,
+            (
+                session["session_id"], session["issue_id"], session["status"],
+                session["created_at"], session["updated_at"],
+                json.dumps(session, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def get_search_session(self, session_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from search_sessions where session_id = ?", (session_id,)
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def list_search_sessions(self) -> list[dict[str, Any]]:
+        return self._list_experiment_records("search_sessions", "created_at desc")
+
+    def upsert_experiment_case(self, case: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into experiment_cases(case_id, session_id, trace_id, split, created_at, payload_json)
+            values (?, ?, ?, ?, ?, ?)
+            on conflict(case_id) do update set payload_json=excluded.payload_json
+            """,
+            (
+                case["case_id"], case["session_id"], case["trace_id"], case["split"],
+                case["created_at"], json.dumps(case, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_experiment_cases(
+        self, session_id: str, *, split: str | None = None
+    ) -> list[dict[str, Any]]:
+        query = "select payload_json from experiment_cases where session_id = ?"
+        params: tuple[Any, ...] = (session_id,)
+        if split is not None:
+            query += " and split = ?"
+            params = (session_id, split)
+        query += " order by case_id"
+        rows = self.connection.execute(query, params).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def upsert_experiment_candidate(self, candidate: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into experiment_candidates(
+              candidate_id, session_id, round_number, status, created_at, payload_json
+            ) values (?, ?, ?, ?, ?, ?)
+            on conflict(candidate_id) do update set
+              status=excluded.status,
+              payload_json=excluded.payload_json
+            """,
+            (
+                candidate["candidate_id"], candidate["session_id"],
+                candidate["round_number"], candidate["status"], candidate["created_at"],
+                json.dumps(candidate, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def get_experiment_candidate(self, candidate_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "select payload_json from experiment_candidates where candidate_id = ?",
+            (candidate_id,),
+        ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def list_experiment_candidates(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            select payload_json from experiment_candidates
+            where session_id = ? order by round_number, candidate_id
+            """,
+            (session_id,),
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def list_all_experiment_candidates(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            select payload_json from experiment_candidates
+            order by created_at, round_number, candidate_id
+            """
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def upsert_candidate_evaluation(self, evaluation: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into candidate_evaluations(
+              evaluation_id, session_id, candidate_id, split, status, created_at, payload_json
+            ) values (?, ?, ?, ?, ?, ?, ?)
+            on conflict(evaluation_id) do update set
+              status=excluded.status,
+              payload_json=excluded.payload_json
+            """,
+            (
+                evaluation["evaluation_id"], evaluation["session_id"],
+                evaluation["candidate_id"], evaluation["split"], evaluation["status"],
+                evaluation["created_at"], json.dumps(evaluation, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_candidate_evaluations(
+        self, session_id: str, *, candidate_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        query = "select payload_json from candidate_evaluations where session_id = ?"
+        params: tuple[Any, ...] = (session_id,)
+        if candidate_id is not None:
+            query += " and candidate_id = ?"
+            params = (session_id, candidate_id)
+        query += " order by created_at, evaluation_id"
+        rows = self.connection.execute(query, params).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def list_all_candidate_evaluations(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "select payload_json from candidate_evaluations order by created_at, evaluation_id"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def upsert_pareto_snapshot(self, snapshot: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert into pareto_snapshots(
+              snapshot_id, session_id, round_number, created_at, payload_json
+            ) values (?, ?, ?, ?, ?)
+            on conflict(snapshot_id) do update set payload_json=excluded.payload_json
+            """,
+            (
+                snapshot["snapshot_id"], snapshot["session_id"], snapshot["round_number"],
+                snapshot["created_at"], json.dumps(snapshot, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_pareto_snapshots(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            select payload_json from pareto_snapshots
+            where session_id = ? order by round_number, created_at
+            """,
+            (session_id,),
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def add_search_event(self, event: dict[str, Any]) -> None:
+        self.connection.execute(
+            """
+            insert or ignore into search_events(
+              event_id, session_id, candidate_id, event_type, created_at, payload_json
+            ) values (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event["event_id"], event["session_id"], event.get("candidate_id"),
+                event["event_type"], event["created_at"],
+                json.dumps(event, sort_keys=True),
+            ),
+        )
+        self.connection.commit()
+
+    def list_search_events(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            select payload_json from search_events
+            where session_id = ? order by created_at, event_id
+            """,
+            (session_id,),
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def _list_experiment_records(self, table: str, order: str) -> list[dict[str, Any]]:
+        allowed = {"search_sessions"}
+        if table not in allowed:
+            raise ValueError(f"unsupported experiment table: {table}")
+        rows = self.connection.execute(
+            f"select payload_json from {table} order by {order}"
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]

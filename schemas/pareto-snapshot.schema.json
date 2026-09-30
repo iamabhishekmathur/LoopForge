@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/pareto-snapshot.schema.json",
+  "title": "LoopForge Pareto Snapshot",
+  "type": "object",
+  "required": ["schema_version", "snapshot_id", "session_id", "round_number", "candidate_ids", "dominated_candidate_ids", "created_at"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "minLength": 1},
+    "round_number": {"type": "integer", "minimum": 0},
+    "candidate_ids": {"type": "array", "items": {"type": "string"}},
+    "dominated_candidate_ids": {"type": "array", "items": {"type": "string"}},
+    "created_at": {"type": "string", "minLength": 1},
+    "metadata": {"type": "object", "additionalProperties": true}
+  },
+  "additionalProperties": false
+}

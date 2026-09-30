@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/search-event.schema.json",
+  "title": "LoopForge Search Event",
+  "type": "object",
+  "required": ["schema_version", "event_id", "session_id", "event_type", "created_at", "payload"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "event_id": {"type": "string"}, "session_id": {"type": "string"},
+    "candidate_id": {"type": ["string", "null"]}, "event_type": {"type": "string"},
+    "created_at": {"type": "string"}, "payload": {"type": "object"}
+  }
+}

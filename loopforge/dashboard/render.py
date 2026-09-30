@@ -25,6 +25,7 @@ def build_dashboard(root: Path) -> Path:
 def collect_dashboard_data(root: Path) -> dict[str, Any]:
     store = Store.for_project(root)
     try:
+        search_sessions = store.list_search_sessions()
         return {
             "project_root": str(root),
             "connectors": [status.to_dict() for status in connector_statuses(root)],
@@ -42,6 +43,27 @@ def collect_dashboard_data(root: Path) -> dict[str, Any]:
             "states": store.list_harness_states(),
             "evidence": [record.to_dict() for record in list_evidence(root)],
             "receipts": [receipt.to_dict() for receipt in list_receipts(root)],
+            "search_sessions": search_sessions,
+            "experiment_candidates": [
+                candidate
+                for session in search_sessions
+                for candidate in store.list_experiment_candidates(session["session_id"])
+            ],
+            "candidate_evaluations": [
+                evaluation
+                for session in search_sessions
+                for evaluation in store.list_candidate_evaluations(session["session_id"])
+            ],
+            "pareto_snapshots": [
+                snapshot
+                for session in search_sessions
+                for snapshot in store.list_pareto_snapshots(session["session_id"])
+            ],
+            "search_events": [
+                event
+                for session in search_sessions
+                for event in store.list_search_events(session["session_id"])
+            ],
         }
     finally:
         store.close()
@@ -99,6 +121,14 @@ def render_dashboard(data: dict[str, Any]) -> str:
     .status-warn, .status-drafted, .status-setup_only {{ color: var(--warn); font-weight: 600; }}
     .status-failed, .status-reject, .status-needs_credentials, .status-invalid {{ color: var(--bad); font-weight: 600; }}
     .muted {{ color: var(--muted); }}
+    .timeline {{ position: relative; margin: 8px 0 0 8px; padding-left: 24px; }}
+    .timeline::before {{ content: ""; position: absolute; left: 6px; top: 5px; bottom: 5px; width: 2px; background: var(--line); }}
+    .event {{ position: relative; padding: 0 0 14px 0; }}
+    .event::before {{ content: ""; position: absolute; left: -22px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); }}
+    .event strong {{ display: inline-block; margin-right: 8px; }}
+    .lineage {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }}
+    .candidate {{ border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 180px; }}
+    details summary {{ cursor: pointer; font-weight: 600; }}
   </style>
 </head>
 <body>
@@ -108,6 +138,7 @@ def render_dashboard(data: dict[str, Any]) -> str:
   </header>
   <main>
     {_overview(data)}
+    {_search_experiments(data)}
     {_table("Connectors", data.get("connectors", []), ["source_id", "source_type", "status", "message"])}
     {_table("Monitor Runs", data.get("monitor_runs", []), ["run_id", "status", "window", "counts"])}
     {_table("Issues", data.get("issues", []), ["issue_id", "severity", "confidence", "primary_ontology_id", "title"])}
@@ -143,12 +174,84 @@ def _overview(data: dict[str, Any]) -> str:
         ("States", len(data.get("states", []))),
         ("Evidence", len(data.get("evidence", []))),
         ("Receipts", len(data.get("receipts", []))),
+        ("Search Sessions", len(data.get("search_sessions", []))),
+        ("Candidates", len(data.get("experiment_candidates", []))),
     ]
     cards = "\n".join(
         f'<div class="metric"><span class="muted">{escape(label)}</span><strong>{value}</strong></div>'
         for label, value in items
     )
     return f"<section><h2>Overview</h2><div class=\"grid\">{cards}</div></section>"
+
+
+def _search_experiments(data: dict[str, Any]) -> str:
+    sessions = data.get("search_sessions", [])
+    if not sessions:
+        return '<section><h2>Harness Experiments</h2><p class="muted">No search sessions.</p></section>'
+    candidates = data.get("experiment_candidates", [])
+    evaluations = data.get("candidate_evaluations", [])
+    snapshots = data.get("pareto_snapshots", [])
+    events = data.get("search_events", [])
+    blocks = []
+    for session in sessions:
+        session_id = session.get("session_id")
+        session_candidates = [item for item in candidates if item.get("session_id") == session_id]
+        latest_frontier = [item for item in snapshots if item.get("session_id") == session_id]
+        frontier_ids = set((latest_frontier[-1] if latest_frontier else {}).get("candidate_ids") or [])
+        lineage = "".join(
+            _candidate_card(candidate, evaluations, frontier_ids)
+            for candidate in session_candidates
+        )
+        timeline = "".join(
+            _event_item(event)
+            for event in events
+            if event.get("session_id") == session_id
+        )
+        blocks.append(
+            f'<details open><summary>{escape(str(session_id))} · '
+            f'{escape(str(session.get("status")))}</summary>'
+            f'<div class="lineage">{lineage}</div>'
+            f'<div class="timeline">{timeline}</div></details>'
+        )
+    return f'<section><h2>Harness Experiments</h2>{"".join(blocks)}</section>'
+
+
+def _candidate_card(
+    candidate: dict[str, Any],
+    evaluations: list[dict[str, Any]],
+    frontier_ids: set[str],
+) -> str:
+    candidate_id = str(candidate.get("candidate_id"))
+    combined = next(
+        (
+            item
+            for item in reversed(evaluations)
+            if item.get("candidate_id") == candidate_id
+            and (item.get("metadata") or {}).get("staged_holdout") is True
+        ),
+        {},
+    )
+    objectives = combined.get("objectives") or {}
+    marker = " · frontier" if candidate_id in frontier_ids else ""
+    return (
+        '<div class="candidate">'
+        f'<strong>{escape(candidate_id)}</strong><br>'
+        f'<span class="status-{escape(str(candidate.get("status")))}">'
+        f'{escape(str(candidate.get("status")))}{marker}</span><br>'
+        f'<span class="muted">quality {escape(str(objectives.get("quality", "-")))} · '
+        f'resolution {escape(str(objectives.get("issue_resolution", "-")))}</span>'
+        '</div>'
+    )
+
+
+def _event_item(event: dict[str, Any]) -> str:
+    return (
+        '<div class="event">'
+        f'<strong>{escape(str(event.get("event_type")))}</strong>'
+        f'<span class="muted">{escape(str(event.get("created_at", "")))}</span><br>'
+        f'<span>{escape(str(event.get("candidate_id") or "session"))}</span>'
+        '</div>'
+    )
 
 
 def _table(title: str, rows: list[Any], columns: list[str]) -> str:

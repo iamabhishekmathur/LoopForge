@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/search-session.schema.json",
+  "title": "LoopForge Search Session",
+  "type": "object",
+  "required": ["schema_version", "session_id", "issue_id", "baseline_state_id", "status", "created_at", "updated_at", "max_rounds", "candidates_per_round", "proposer_id", "evaluator_id"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "session_id": {"type": "string", "minLength": 1},
+    "issue_id": {"type": "string", "minLength": 1},
+    "baseline_state_id": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["created", "running", "blocked", "completed", "stopped"]},
+    "created_at": {"type": "string", "minLength": 1},
+    "updated_at": {"type": "string", "minLength": 1},
+    "max_rounds": {"type": "integer", "minimum": 1},
+    "candidates_per_round": {"type": "integer", "minimum": 1},
+    "proposer_id": {"type": "string", "minLength": 1},
+    "evaluator_id": {"type": "string", "minLength": 1},
+    "search_case_ids": {"type": "array", "items": {"type": "string"}},
+    "control_case_ids": {"type": "array", "items": {"type": "string"}},
+    "holdout_case_ids": {"type": "array", "items": {"type": "string"}},
+    "promoted_candidate_id": {"type": ["string", "null"]},
+    "metadata": {"type": "object", "additionalProperties": true}
+  },
+  "additionalProperties": false
+}

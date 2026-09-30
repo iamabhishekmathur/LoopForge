@@ -12,7 +12,14 @@ from pathlib import Path
 from . import __version__
 from .adapters.registry import connector_statuses
 from .adapters.samples import sample_config, sample_config_names
-from .config import InitOptions, SUPPORTED_FRAMEWORKS, initialize_project, inspect_project
+from .config import (
+    InitOptions,
+    SUPPORTED_FRAMEWORKS,
+    configured_external_llm_allowed,
+    configured_search_settings,
+    initialize_project,
+    inspect_project,
+)
 from .confirmation.runner import confirm_patch_outcome, write_confirmation_report
 from .dashboard.render import build_dashboard
 from .db import Store
@@ -31,6 +38,11 @@ from .evidence.reducer import (
     receipts_for_trace,
     reduce_all_evidence,
 )
+from .experiments.corpus import OpenAICompatibleCaseCurator
+from .experiments.evaluation import OpenAICompatiblePairwiseEvaluator
+from .experiments.execution import CommandExecutionAdapter
+from .experiments.proposer import OpenAICompatibleCandidateProposer
+from .experiments.search import create_search_session, promote_candidate, run_search
 from .issues.report import issue_report_markdown, write_issue_report
 from .issues.resolution import build_resolution_plan, resolution_plan_markdown, write_resolution_plan
 from .improvements.planner import (
@@ -71,7 +83,7 @@ from .refinements.refiner import refine_issue
 from .gates.runner import run_gates, write_gate_report
 from .queue.runner import cancel_refiner_job, run_next_refiner_job
 from .rollback import apply_patch_rollback, write_rollback_artifact
-from .replay.runner import run_replay, write_replay_report
+from .replay.runner import ReplayReport, run_replay, write_replay_report
 from .schemas import validate_all_schemas
 from .monitor.runner import iter_monitor_runs, parse_schedule_seconds
 from .shadow.runner import run_shadow_pipeline
@@ -396,6 +408,31 @@ def build_parser() -> argparse.ArgumentParser:
     rollback = subparsers.add_parser("rollback", help="Write a reverse diff for a patch bundle.")
     rollback.add_argument("patch_id")
     rollback.add_argument("--apply", action="store_true", help="Apply the reverse patch with git apply.")
+
+    search = subparsers.add_parser("search", help="Run iterative, verified harness experiments.")
+    search_subparsers = search.add_subparsers(dest="search_command", required=True)
+    search_start = search_subparsers.add_parser("start", help="Create and run a search session.")
+    search_start.add_argument("issue_id")
+    search_start.add_argument("--execution-command", default=None)
+    search_start.add_argument("--max-rounds", type=int, default=None)
+    search_start.add_argument("--candidates-per-round", type=int, default=None)
+    search_start.add_argument("--create-only", action="store_true")
+    search_resume = search_subparsers.add_parser("resume", help="Resume a search session.")
+    search_resume.add_argument("session_id")
+    search_resume.add_argument("--execution-command", default=None)
+    search_subparsers.add_parser("list", help="List search sessions.")
+    search_show = search_subparsers.add_parser("show", help="Show a search session.")
+    search_show.add_argument("session_id")
+    search_frontier = search_subparsers.add_parser("frontier", help="Show the latest Pareto frontier.")
+    search_frontier.add_argument("session_id")
+    search_compare = search_subparsers.add_parser("compare", help="Compare two candidates.")
+    search_compare.add_argument("left_candidate_id")
+    search_compare.add_argument("right_candidate_id")
+    search_promote = search_subparsers.add_parser(
+        "promote", help="Promote a frontier candidate into the normal review gates."
+    )
+    search_promote.add_argument("session_id")
+    search_promote.add_argument("candidate_id")
 
     schemas = subparsers.add_parser("schemas", help="Schema utilities.")
     schema_subparsers = schemas.add_subparsers(dest="schema_command", required=True)
@@ -1576,7 +1613,22 @@ def command_gate(args: argparse.Namespace) -> int:
             return 1
         evals = store.list_evals_for_issue(patch.issue_id)
         validations = store.list_validations_for_issue(patch.issue_id)
-        replay_report = run_replay(patch, issue, evals)
+        stored_replay = store.get_replay_report_for_patch(patch.patch_id)
+        if (
+            stored_replay
+            and (stored_replay.get("metadata") or {}).get("actual_execution") is True
+        ):
+            replay_report = ReplayReport(**{
+                "replay_id": stored_replay["replay_id"],
+                "patch_id": stored_replay["patch_id"],
+                "status": stored_replay["status"],
+                "passed_cases": stored_replay["passed_cases"],
+                "failed_cases": stored_replay["failed_cases"],
+                "cases": stored_replay["cases"],
+                "metadata": stored_replay.get("metadata") or {},
+            })
+        else:
+            replay_report = run_replay(patch, issue, evals)
         write_replay_report(root, replay_report)
         operation_history = store.list_refinement_operations()
         report = run_gates(
@@ -2174,6 +2226,239 @@ def _refinement_preview(operation: RefinementOperation) -> str:
     return "\n".join(lines)
 
 
+def command_search_start(args: argparse.Namespace) -> int:
+    root = require_project_root()
+    if not configured_external_llm_allowed(root):
+        print(
+            "error: set redaction.external_llm_allowed: true before live harness search",
+            file=sys.stderr,
+        )
+        return 2
+    settings = configured_search_settings(root)
+    store = Store.for_project(root)
+    try:
+        issue_payload = store.get_issue(args.issue_id)
+        traces = [Trace.from_dict(item) for item in store.list_traces()]
+    finally:
+        store.close()
+    if issue_payload is None:
+        print(f"error: unknown issue {args.issue_id}", file=sys.stderr)
+        return 2
+    issue = Issue.from_dict(issue_payload)
+    proposer, evaluator, curator, adapter = _live_search_components(
+        root, args.execution_command
+    )
+    try:
+        session = create_search_session(
+            root,
+            issue,
+            traces,
+            curator,
+            proposer_id=proposer.proposer_id,
+            evaluator_id=evaluator.evaluator_id,
+            max_rounds=args.max_rounds or settings.max_rounds,
+            candidates_per_round=(
+                args.candidates_per_round or settings.candidates_per_round
+            ),
+        )
+        print(f"Created search session {session.session_id}")
+        if args.create_only:
+            return 0
+        result = run_search(
+            root,
+            session.session_id,
+            proposer,
+            evaluator,
+            adapter,
+            judge_repetitions=settings.judge_repetitions,
+        )
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(_search_result_markdown(result))
+    return 0 if result.session.status == "completed" else 2
+
+
+def command_search_resume(args: argparse.Namespace) -> int:
+    root = require_project_root()
+    if not configured_external_llm_allowed(root):
+        print("error: external LLM access is disabled", file=sys.stderr)
+        return 2
+    settings = configured_search_settings(root)
+    proposer, evaluator, _, adapter = _live_search_components(root, args.execution_command)
+    try:
+        result = run_search(
+            root,
+            args.session_id,
+            proposer,
+            evaluator,
+            adapter,
+            judge_repetitions=settings.judge_repetitions,
+        )
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(_search_result_markdown(result))
+    return 0 if result.session.status == "completed" else 2
+
+
+def command_search_list(_: argparse.Namespace) -> int:
+    root = require_project_root()
+    store = Store.for_project(root)
+    try:
+        sessions = store.list_search_sessions()
+    finally:
+        store.close()
+    if not sessions:
+        print("No search sessions.")
+        return 0
+    for session in sessions:
+        print(
+            f"{session['session_id']}  {session['status']}  issue={session['issue_id']}  "
+            f"promoted={session.get('promoted_candidate_id') or '-'}"
+        )
+    return 0
+
+
+def command_search_show(args: argparse.Namespace) -> int:
+    root = require_project_root()
+    store = Store.for_project(root)
+    try:
+        session = store.get_search_session(args.session_id)
+        events = store.list_search_events(args.session_id)
+        candidates = store.list_experiment_candidates(args.session_id)
+    finally:
+        store.close()
+    if session is None:
+        print(f"error: unknown search session {args.session_id}", file=sys.stderr)
+        return 2
+    print(f"# {session['session_id']}\n")
+    print(f"Status: `{session['status']}`")
+    print(f"Issue: `{session['issue_id']}`")
+    print(f"Candidates: `{max(0, len(candidates) - 1)}`")
+    print(f"Events: `{len(events)}`")
+    print(f"Promoted: `{session.get('promoted_candidate_id') or 'none'}`")
+    return 0
+
+
+def command_search_frontier(args: argparse.Namespace) -> int:
+    root = require_project_root()
+    store = Store.for_project(root)
+    try:
+        snapshots = store.list_pareto_snapshots(args.session_id)
+        evaluations = store.list_candidate_evaluations(args.session_id)
+    finally:
+        store.close()
+    if not snapshots:
+        print(f"No frontier exists for {args.session_id}.")
+        return 0
+    latest = snapshots[-1]
+    print(f"# Pareto Frontier: {args.session_id}\n")
+    for candidate_id in latest.get("candidate_ids") or []:
+        evaluation = next(
+            (
+                item
+                for item in reversed(evaluations)
+                if item.get("candidate_id") == candidate_id
+                and (item.get("metadata") or {}).get("staged_holdout") is True
+            ),
+            {},
+        )
+        print(f"- `{candidate_id}` {json.dumps(evaluation.get('objectives') or {}, sort_keys=True)}")
+    return 0
+
+
+def command_search_compare(args: argparse.Namespace) -> int:
+    root = require_project_root()
+    store = Store.for_project(root)
+    try:
+        records = []
+        for candidate_id in (args.left_candidate_id, args.right_candidate_id):
+            candidate = store.get_experiment_candidate(candidate_id)
+            if candidate is None:
+                print(f"error: unknown candidate {candidate_id}", file=sys.stderr)
+                return 2
+            evaluations = store.list_candidate_evaluations(
+                candidate["session_id"], candidate_id=candidate_id
+            )
+            combined = next(
+                (
+                    item
+                    for item in reversed(evaluations)
+                    if (item.get("metadata") or {}).get("staged_holdout") is True
+                ),
+                None,
+            )
+            records.append((candidate, combined))
+    finally:
+        store.close()
+    for candidate, evaluation in records:
+        print(f"# {candidate['candidate_id']}\n")
+        print(candidate["hypothesis"]["statement"])
+        print("\nChanged files:")
+        for update in candidate.get("file_updates") or []:
+            print(f"- `{update.get('path')}`")
+        print(f"\nObjectives: `{json.dumps((evaluation or {}).get('objectives') or {}, sort_keys=True)}`\n")
+    return 0
+
+
+def command_search_promote(args: argparse.Namespace) -> int:
+    root = require_project_root()
+    try:
+        session = promote_candidate(root, args.session_id, args.candidate_id)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(
+        f"Promoted {args.candidate_id} from {session.session_id} into the normal "
+        "human-review and gate workflow."
+    )
+    return 0
+
+
+def _live_search_components(root: Path, command_override: str | None):
+    settings = configured_search_settings(root)
+    command = command_override or settings.execution_command
+    if not command:
+        raise ValueError(
+            "search.execution_command is required; it must read a trace case from stdin "
+            "and emit output, trace, and metrics JSON"
+        )
+    proposer = OpenAICompatibleCandidateProposer(
+        endpoint=settings.proposer_endpoint,
+        model=settings.proposer_model,
+        api_key_env=settings.proposer_api_key_env,
+    )
+    evaluator = OpenAICompatiblePairwiseEvaluator(
+        endpoint=settings.evaluator_endpoint,
+        model=settings.evaluator_model,
+        api_key_env=settings.evaluator_api_key_env,
+    )
+    curator = OpenAICompatibleCaseCurator(
+        endpoint=settings.evaluator_endpoint,
+        model=settings.evaluator_model,
+        api_key_env=settings.evaluator_api_key_env,
+    )
+    return proposer, evaluator, curator, CommandExecutionAdapter(command)
+
+
+def _search_result_markdown(result) -> str:
+    frontier = ", ".join(result.frontier_candidate_ids) or "none"
+    return "\n".join(
+        [
+            f"# Search {result.session.session_id}",
+            "",
+            f"Status: `{result.session.status}`",
+            f"Candidates evaluated: `{result.candidate_count}`",
+            f"Verified candidates: `{result.verified_candidate_count}`",
+            f"Pareto frontier: `{frontier}`",
+            f"Report: `{result.report_path}`",
+            "",
+            "No candidate was applied to the customer working tree.",
+        ]
+    )
+
+
 def run(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -2290,6 +2575,20 @@ def run(argv: list[str] | None = None) -> int:
         return command_prs_show(args)
     if args.command == "rollback":
         return command_rollback(args)
+    if args.command == "search" and args.search_command == "start":
+        return command_search_start(args)
+    if args.command == "search" and args.search_command == "resume":
+        return command_search_resume(args)
+    if args.command == "search" and args.search_command == "list":
+        return command_search_list(args)
+    if args.command == "search" and args.search_command == "show":
+        return command_search_show(args)
+    if args.command == "search" and args.search_command == "frontier":
+        return command_search_frontier(args)
+    if args.command == "search" and args.search_command == "compare":
+        return command_search_compare(args)
+    if args.command == "search" and args.search_command == "promote":
+        return command_search_promote(args)
     if args.command == "schemas" and args.schema_command == "validate":
         return command_schemas_validate(args)
 

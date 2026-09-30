@@ -47,6 +47,20 @@ class InitOptions:
     force: bool = False
 
 
+@dataclass(frozen=True)
+class SearchSettings:
+    max_rounds: int
+    candidates_per_round: int
+    judge_repetitions: int
+    execution_command: str
+    proposer_endpoint: str
+    proposer_model: str
+    proposer_api_key_env: str
+    evaluator_endpoint: str
+    evaluator_model: str
+    evaluator_api_key_env: str
+
+
 def default_config_text(options: InitOptions) -> str:
     return f"""version: 1
 project:
@@ -69,6 +83,20 @@ refinement:
   cadence: "after_monitor_run"
   default_scope: workflow
   max_candidate_operations: 5
+
+search:
+  enabled: true
+  auto_run_search: true
+  max_rounds: 3
+  candidates_per_round: 3
+  judge_repetitions: 3
+  execution_command: ""
+  proposer_endpoint: https://api.openai.com/v1/chat/completions
+  proposer_model: gpt-4.1
+  proposer_api_key_env: OPENAI_API_KEY
+  evaluator_endpoint: https://api.openai.com/v1/chat/completions
+  evaluator_model: gpt-4.1-mini
+  evaluator_api_key_env: OPENAI_API_KEY
 
 analysis:
   max_traces_per_scan: 1000
@@ -345,6 +373,31 @@ def configured_refiner_target_scope(root: Path) -> str:
 
 def configured_external_llm_allowed(root: Path) -> bool:
     return str(_first_scalar_config_value(root, "external_llm_allowed")).lower() == "true"
+
+
+def configured_search_settings(root: Path) -> SearchSettings:
+    return SearchSettings(
+        max_rounds=int(_float_config_value(root, "max_rounds", 3)),
+        candidates_per_round=int(_float_config_value(root, "candidates_per_round", 3)),
+        judge_repetitions=max(2, int(_float_config_value(root, "judge_repetitions", 3))),
+        execution_command=_first_scalar_config_value(root, "execution_command") or "",
+        proposer_endpoint=_first_scalar_config_value(root, "proposer_endpoint")
+        or "https://api.openai.com/v1/chat/completions",
+        proposer_model=_first_scalar_config_value(root, "proposer_model") or "gpt-4.1",
+        proposer_api_key_env=_first_scalar_config_value(root, "proposer_api_key_env")
+        or "OPENAI_API_KEY",
+        evaluator_endpoint=_first_scalar_config_value(root, "evaluator_endpoint")
+        or "https://api.openai.com/v1/chat/completions",
+        evaluator_model=_first_scalar_config_value(root, "evaluator_model")
+        or "gpt-4.1-mini",
+        evaluator_api_key_env=_first_scalar_config_value(root, "evaluator_api_key_env")
+        or "OPENAI_API_KEY",
+    )
+
+
+def configured_search_enabled(root: Path) -> bool:
+    value = _first_scalar_config_value(root, "auto_run_search")
+    return str(value).lower() == "true"
 
 
 def configured_issue_judge(root: Path):

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/experiment-candidate.schema.json",
+  "title": "LoopForge Experiment Candidate",
+  "type": "object",
+  "required": ["schema_version", "candidate_id", "session_id", "round_number", "parent_candidate_ids", "hypothesis", "file_updates", "patch_bundle", "status", "created_at", "proposer_id"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "candidate_id": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "minLength": 1},
+    "round_number": {"type": "integer", "minimum": 0},
+    "parent_candidate_ids": {"type": "array", "items": {"type": "string"}},
+    "hypothesis": {
+      "type": "object",
+      "required": ["statement", "expected_effect", "affected_case_classes", "unaffected_case_classes", "possible_confounds", "disproof_condition"],
+      "properties": {
+        "statement": {"type": "string", "minLength": 1},
+        "expected_effect": {"type": "string", "minLength": 1},
+        "affected_case_classes": {"type": "array", "items": {"type": "string"}},
+        "unaffected_case_classes": {"type": "array", "items": {"type": "string"}},
+        "possible_confounds": {"type": "array", "items": {"type": "string"}},
+        "disproof_condition": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "file_updates": {"type": "array", "items": {"type": "object"}},
+    "patch_bundle": {"type": "object"},
+    "status": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "minLength": 1},
+    "proposer_id": {"type": "string", "minLength": 1},
+    "metadata": {"type": "object", "additionalProperties": true}
+  },
+  "additionalProperties": false
+}

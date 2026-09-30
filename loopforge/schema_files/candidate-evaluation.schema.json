@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loopforge.dev/schemas/candidate-evaluation.schema.json",
+  "title": "LoopForge Candidate Evaluation",
+  "type": "object",
+  "required": ["schema_version", "evaluation_id", "session_id", "candidate_id", "split", "status", "created_at", "evaluator_id", "cases", "objectives", "verification"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "evaluation_id": {"type": "string"}, "session_id": {"type": "string"},
+    "candidate_id": {"type": "string"}, "split": {"type": "string"},
+    "status": {"type": "string"}, "created_at": {"type": "string"},
+    "evaluator_id": {"type": "string"}, "cases": {"type": "array"},
+    "objectives": {"type": "object"}, "verification": {"type": "object"},
+    "metadata": {"type": "object"}
+  }
+}

@@ -32,12 +32,14 @@ def run_gates(
         _diff_preview_suite(patch, operation_history or []),
         _evaluator_validation_suite(validations),
         _replay_sandbox_suite(patch, replay_report),
+        _experiment_verification_suite(patch, replay_report),
         concentration.to_suite(),
     ]
     rejected = any(suite["status"] in {"reject", "error"} for suite in suites)
     warned = any(suite["status"] == "warn" for suite in suites)
     status = "reject" if rejected else "warn" if warned else "pass"
     recommendation = "merge_after_human_review" if status in {"pass", "warn"} else "revise"
+    objectives = patch.metadata.get("search_objectives") or {}
     return GateReport(
         gate_report_id=f"GATE-{patch.patch_id}",
         patch_id=patch.patch_id,
@@ -50,6 +52,8 @@ def run_gates(
             "score_after": 1.0 if status == "pass" else 0.0,
         },
         suites=suites,
+        cost_delta_percent=float(objectives.get("cost_delta_percent") or 0.0),
+        latency_p95_delta_percent=float(objectives.get("latency_delta_percent") or 0.0),
         trust={
             "autonomy_level": 1,
             "runtime_manifest_coverage": _runtime_manifest_coverage(patch),
@@ -242,6 +246,38 @@ def _replay_sandbox_suite(patch: PatchBundle, replay_report: ReplayReport) -> di
         "failed_cases": []
         if passed
         else [f"replay report did not pass: {replay_report.replay_id}"],
+    }
+
+
+def _experiment_verification_suite(
+    patch: PatchBundle,
+    replay_report: ReplayReport,
+) -> dict[str, object]:
+    session_id = patch.metadata.get("search_session_id")
+    if not session_id:
+        return {
+            "name": "experiment_verification",
+            "status": "pass",
+            "score_after": 1.0,
+            "failed_cases": [],
+            "not_applicable": True,
+        }
+    failures = []
+    if patch.metadata.get("actual_execution_verified") is not True:
+        failures.append("candidate was not verified through actual execution")
+    if patch.metadata.get("holdout_isolated") is not True:
+        failures.append("hidden holdout isolation was not verified")
+    if float(patch.metadata.get("target_improvement_delta") or 0.0) < 0.05:
+        failures.append("target behavior did not improve by the minimum margin")
+    if replay_report.metadata.get("engine") != "experiment_execution_v1":
+        failures.append("gate is not using the experiment execution replay")
+    return {
+        "name": "experiment_verification",
+        "status": "pass" if not failures else "reject",
+        "score_after": 1.0 if not failures else 0.0,
+        "failed_cases": failures,
+        "search_session_id": session_id,
+        "evaluation_id": patch.metadata.get("search_evaluation_id"),
     }
 
 

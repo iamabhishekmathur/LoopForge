@@ -7,8 +7,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from loopforge.db import Store
+from loopforge.config import (
+    configured_external_llm_allowed,
+    configured_search_enabled,
+    configured_search_settings,
+)
+from loopforge.experiments.corpus import OpenAICompatibleCaseCurator
+from loopforge.experiments.evaluation import OpenAICompatiblePairwiseEvaluator
+from loopforge.experiments.execution import CommandExecutionAdapter
+from loopforge.experiments.proposer import OpenAICompatibleCandidateProposer
+from loopforge.experiments.search import create_search_session, run_search
 from loopforge.models.issue import Issue
 from loopforge.models.queue import RefinerQueueItem
+from loopforge.models.trace import Trace
 from loopforge.patching.generator import write_patch_bundle
 from loopforge.refinements.ledger import write_refinement_operations
 from loopforge.refinements.refiner import refine_issue
@@ -120,6 +131,13 @@ def _draft_refinements_for_queue_item(
     skipped_issues = 0
     processed_issue_ids: list[str] = []
     abstentions: list[dict[str, object]] = []
+    search_results: list[dict[str, object]] = []
+    search_settings = configured_search_settings(root)
+    search_ready = (
+        configured_search_enabled(root)
+        and configured_external_llm_allowed(root)
+        and bool(search_settings.execution_command)
+    )
 
     for issue_payload in store.list_issues():
         if drafted_operations >= max_operations:
@@ -127,6 +145,27 @@ def _draft_refinements_for_queue_item(
         issue = Issue.from_dict(issue_payload)
         if issue.status not in {"open", "proposed"}:
             skipped_issues += 1
+            continue
+        if search_ready:
+            try:
+                result = _run_verified_search(root, issue, store, search_settings)
+                search_results.append(
+                    {
+                        "issue_id": issue.issue_id,
+                        "session_id": result.session.session_id,
+                        "status": result.session.status,
+                        "frontier_candidate_ids": result.frontier_candidate_ids,
+                    }
+                )
+                processed_issue_ids.append(issue.issue_id)
+            except Exception as exc:
+                abstentions.append(
+                    {
+                        "issue_id": issue.issue_id,
+                        "reason": f"verified search did not complete: {exc}",
+                        "abstentions": [],
+                    }
+                )
             continue
         eval_ids = [
             str(eval_payload["eval_id"])
@@ -159,4 +198,42 @@ def _draft_refinements_for_queue_item(
         "processed_issue_ids": processed_issue_ids,
         "skipped_issues": skipped_issues,
         "abstentions": abstentions[:5],
+        "search_results": search_results,
     }
+
+
+def _run_verified_search(root: Path, issue: Issue, store: Store, settings):
+    proposer = OpenAICompatibleCandidateProposer(
+        endpoint=settings.proposer_endpoint,
+        model=settings.proposer_model,
+        api_key_env=settings.proposer_api_key_env,
+    )
+    evaluator = OpenAICompatiblePairwiseEvaluator(
+        endpoint=settings.evaluator_endpoint,
+        model=settings.evaluator_model,
+        api_key_env=settings.evaluator_api_key_env,
+    )
+    curator = OpenAICompatibleCaseCurator(
+        endpoint=settings.evaluator_endpoint,
+        model=settings.evaluator_model,
+        api_key_env=settings.evaluator_api_key_env,
+    )
+    traces = [Trace.from_dict(item) for item in store.list_traces()]
+    session = create_search_session(
+        root,
+        issue,
+        traces,
+        curator,
+        proposer_id=proposer.proposer_id,
+        evaluator_id=evaluator.evaluator_id,
+        max_rounds=settings.max_rounds,
+        candidates_per_round=settings.candidates_per_round,
+    )
+    return run_search(
+        root,
+        session.session_id,
+        proposer,
+        evaluator,
+        CommandExecutionAdapter(settings.execution_command),
+        judge_repetitions=settings.judge_repetitions,
+    )
