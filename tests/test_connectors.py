@@ -895,6 +895,65 @@ def test_langsmith_retries_rate_limit(monkeypatch) -> None:
     assert sleeps == [0.25]
 
 
+@pytest.mark.parametrize(
+    "transient_error",
+    [
+        TimeoutError("The read operation timed out"),
+        type("ServerError", (Exception,), {"code": 500})("internal server error"),
+    ],
+)
+def test_langsmith_retries_transient_provider_failures(
+    monkeypatch,
+    transient_error: Exception,
+) -> None:
+    calls = 0
+    sleeps = []
+    page = {
+        "runs": [
+            {
+                "id": "trace-1",
+                "trace_id": "trace-1",
+                "start_time": "2026-01-01T00:00:00Z",
+            }
+        ]
+    }
+
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(page).encode("utf-8")
+
+    def fake_urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise transient_error
+        return FakeResponse()
+
+    monkeypatch.setattr("loopforge.adapters.hosted.urlopen", fake_urlopen)
+    monkeypatch.setattr("loopforge.adapters.hosted.time.sleep", sleeps.append)
+    traces = HostedTraceAdapter(
+        "prod",
+        "langsmith",
+        {
+            "base_url": "https://api.example.test",
+            "project": "agent",
+            "limit": "1",
+            "request_retries": "1",
+            "retry_backoff_seconds": "0",
+        },
+    ).read(REPO_ROOT)
+
+    assert len(traces) == 1
+    assert calls == 3
+    assert sleeps == [0.0]
+
+
 def test_hosted_adapter_includes_provider_error_detail(monkeypatch) -> None:
     class FakeHTTPError(Exception):
         def read(self) -> bytes:

@@ -41,6 +41,8 @@ Use calibrated_trace_resolution.answer_requirements as the pre-answer intent con
 Respect fulfillment_timing. A clarification or expected human-input pause does not violate an after_interaction_or_execution deliverable merely because the eventual result is not present in that turn. A missing_clarification issue requires a before_side_effect prerequisite that was actually skipped. If the user already answered yes to a confirmation question, do not require another confirmation. A bare analysis or mission name normally requests execution, not an immediate explanation of the name.
 
 Score evidence quality, codebase grounding, and actionability from 0 to 1. Mark a false positive when a decision flags acceptable behavior or relies on unsupported assumptions. A purported finding whose hypothesis says the agent behaved correctly or that no behavior gap exists is always a false positive, regardless of confidence. Treat the calibrated trace resolution's terminal structured action as later and more authoritative than an intermediate final_response extraction. Do not call an answer incomplete when the terminal Diagnosis or answer action contains the requested result. Mark a missed issue when your independent assessment identifies a likely or clear issue absent from the decision. Do not reward verbosity. Return JSON only.
+
+The audit labels describe different failure modes. If a decision has no findings, false_positive must be false; an incorrect abstention is a missed_issue, not a false_positive.
 """
 
 
@@ -176,7 +178,13 @@ def evaluate_judge_variants(
                 model=review_model,
                 operation="judge_adjudicator",
             )
-            audit = _normalize_audit_payload(audit)
+            audit = _normalize_audit_payload(
+                audit,
+                decisions={
+                    "legacy": legacy.payload,
+                    "calibrated": calibrated.payload,
+                },
+            )
             record.update(
                 {
                     "user_intent": observed.user_intent,
@@ -330,7 +338,11 @@ def summarize_evaluation(records: list[dict[str, Any]]) -> dict[str, Any]:
             if decision.get("abstain") is True or not has_findings:
                 metrics[variant]["abstained_traces"] += 1
             metrics[variant]["false_positives"] += int(
-                has_findings and bool(variant_audit.get("false_positive"))
+                has_findings
+                and (
+                    classification in {"acceptable_behavior", "insufficient_evidence"}
+                    or bool(variant_audit.get("false_positive"))
+                )
             )
             reference_issue = classification in {"clear_issue", "likely_issue"}
             metrics[variant]["missed_issues"] += int(
@@ -353,12 +365,33 @@ def _score(value: Any) -> float:
         return 0.0
 
 
-def _normalize_audit_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _normalize_audit_payload(
+    payload: dict[str, Any],
+    *,
+    decisions: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     nested = payload.get("output_contract")
-    if not isinstance(nested, dict):
-        return payload
     normalized = dict(payload)
-    for key in ("legacy", "calibrated", "preferred_variant"):
-        if key not in normalized and key in nested:
-            normalized[key] = nested[key]
+    if isinstance(nested, dict):
+        for key in ("legacy", "calibrated", "preferred_variant"):
+            if key not in normalized and key in nested:
+                normalized[key] = nested[key]
+    classification = str(
+        (normalized.get("reference_assessment") or {}).get("classification") or ""
+    )
+    for variant, decision in (decisions or {}).items():
+        findings = decision.get("findings")
+        has_findings = isinstance(findings, list) and bool(findings)
+        raw_variant_audit = normalized.get(variant)
+        variant_audit = (
+            dict(raw_variant_audit) if isinstance(raw_variant_audit, dict) else {}
+        )
+        if has_findings:
+            if classification in {"acceptable_behavior", "insufficient_evidence"}:
+                variant_audit["false_positive"] = True
+        else:
+            variant_audit["false_positive"] = False
+            if classification in {"clear_issue", "likely_issue"}:
+                variant_audit["missed_issue"] = True
+        normalized[variant] = variant_audit
     return normalized

@@ -234,7 +234,12 @@ class HostedTraceAdapter(TraceAdapter):
             headers=headers,
             method="POST",
         )
-        retries = int(self.settings.get("rate_limit_retries", "4"))
+        retries = int(
+            self.settings.get(
+                "request_retries",
+                self.settings.get("rate_limit_retries", "4"),
+            )
+        )
         for attempt in range(retries + 1):
             try:
                 with urlopen(
@@ -243,7 +248,7 @@ class HostedTraceAdapter(TraceAdapter):
                 ) as response:
                     return json.loads(response.read().decode("utf-8"))
             except Exception as exc:
-                if _http_status(exc) == 429 and attempt < retries:
+                if _is_transient_http_error(exc) and attempt < retries:
                     time.sleep(_retry_delay_seconds(exc, attempt, self.settings))
                     continue
                 raise ValueError(
@@ -966,6 +971,16 @@ def _http_status(exc: Exception) -> int | None:
         return None
 
 
+def _is_transient_http_error(exc: Exception) -> bool:
+    status = _http_status(exc)
+    if status in {408, 425, 429} or (status is not None and 500 <= status <= 599):
+        return True
+    if isinstance(exc, TimeoutError):
+        return True
+    reason = getattr(exc, "reason", None)
+    return "timed out" in f"{reason or exc}".lower()
+
+
 def _retry_delay_seconds(
     exc: Exception,
     attempt: int,
@@ -978,7 +993,12 @@ def _retry_delay_seconds(
             return max(float(retry_after), 0.0)
     except (TypeError, ValueError):
         pass
-    base = float(settings.get("rate_limit_backoff_seconds", "1"))
+    base = float(
+        settings.get(
+            "retry_backoff_seconds",
+            settings.get("rate_limit_backoff_seconds", "1"),
+        )
+    )
     return base * (2**attempt)
 
 

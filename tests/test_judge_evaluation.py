@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from loopforge.judging.evaluation import summarize_evaluation
+from loopforge.judging.evaluation import _normalize_audit_payload, summarize_evaluation
 
 
 def test_judge_evaluation_summary_compares_false_positives_and_misses() -> None:
@@ -41,3 +41,47 @@ def test_judge_evaluation_summary_compares_false_positives_and_misses() -> None:
     assert metrics["legacy"]["unknown_resolution_findings"] == 1
     assert metrics["calibrated"]["false_positives"] == 0
     assert metrics["preferred_variant"]["calibrated"] == 1
+
+
+def test_audit_normalization_does_not_label_abstention_false_positive() -> None:
+    audit = {
+        "reference_assessment": {"classification": "clear_issue"},
+        "calibrated": {
+            "false_positive": True,
+            "missed_issue": True,
+            "rationale": "The abstention missed a required answer.",
+        },
+    }
+
+    normalized = _normalize_audit_payload(
+        audit,
+        decisions={"calibrated": {"abstain": True, "findings": []}},
+    )
+
+    assert normalized["calibrated"]["false_positive"] is False
+    assert normalized["calibrated"]["missed_issue"] is True
+
+
+def test_reference_assessment_fills_missing_variant_audit_labels() -> None:
+    audit = {
+        "reference_assessment": {"classification": "acceptable_behavior"},
+    }
+    decision = {"findings": [{"title": "unsupported issue"}]}
+
+    normalized = _normalize_audit_payload(
+        audit,
+        decisions={"calibrated": decision},
+    )
+    metrics = summarize_evaluation(
+        [
+            {
+                "status": "complete",
+                "calibrated_decision": decision,
+                "legacy_decision": {"abstain": True, "findings": []},
+                "audit": normalized,
+            }
+        ]
+    )
+
+    assert normalized["calibrated"]["false_positive"] is True
+    assert metrics["calibrated"]["false_positives"] == 1
