@@ -201,6 +201,11 @@ def test_interpreter_scores_full_agent_trace_as_more_judgeable() -> None:
     assert observed.judgeability_score >= 0.5
     assert "user_intent" in observed.available_evidence
     assert "final_response" in observed.available_evidence
+    assert observed.metadata["user_intent_provenance"] == {
+        "source": "root_current_turn",
+        "role": "user",
+        "confidence": 0.98,
+    }
 
 
 def test_interpreter_prefers_original_intent_over_clarification_form() -> None:
@@ -485,6 +490,48 @@ def test_interpreter_prefers_real_user_request_over_internal_human_prompt() -> N
 
     assert observed.user_intent == "what branches/centers have most at risk dollars and clients?"
     assert "BEHAVIOURAL LAYER" not in observed.user_intent
+
+
+def test_interpreter_does_not_merge_child_system_prompt_into_user_intent() -> None:
+    trace = Trace.from_dict(
+        {
+            "schema_version": "1",
+            "trace_id": "tr_internal_summary_writer",
+            "started_at": "2026-09-21T00:00:00Z",
+            "inputs": {"result": "Completed workflow output."},
+            "outputs": {"output": {"summary": "Risk reached 42%."}},
+            "spans": [
+                {
+                    "span_id": "summary_llm",
+                    "type": "llm_call",
+                    "name": "ChatPromptTemplate",
+                    "started_at": "2026-09-21T00:00:01Z",
+                    "input": {
+                        "input": [
+                            {
+                                "type": "system",
+                                "content": "You are a briefing writer. Follow output format rules.",
+                            },
+                            {
+                                "type": "human",
+                                "content": "Workflow summary:\n" + ("metric row " * 250),
+                            },
+                        ]
+                    },
+                    "output": {"summary": "Risk reached 42%."},
+                }
+            ],
+        }
+    )
+
+    observed = interpret_trace(trace)
+
+    assert observed.user_intent is None
+    assert observed.metadata["user_intent_provenance"] == {
+        "source": "unavailable",
+        "role": "unknown",
+        "confidence": 0.0,
+    }
 
 
 def test_interpreter_prefers_explicit_state_user_query_over_internal_prompt() -> None:

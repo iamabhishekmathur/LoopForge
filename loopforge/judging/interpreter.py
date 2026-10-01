@@ -73,7 +73,7 @@ TOOLISH_TYPES = {"tool_call", "router", "retriever", "application"}
 
 
 def interpret_trace(trace: Trace) -> ObservedAgentRun:
-    user_intent = _extract_user_intent(trace)
+    user_intent, user_intent_provenance = _extract_user_intent_with_provenance(trace)
     final_response = _extract_final_response(trace)
     user_intent_candidates = _user_intent_candidates(trace)
     current_turn_candidates = _current_turn_candidates(trace)
@@ -132,6 +132,7 @@ def interpret_trace(trace: Trace) -> ObservedAgentRun:
             "source_id": trace.metadata.get("source_id"),
             "control_flow_events": control_flow_events,
             "user_intent_candidates": user_intent_candidates,
+            "user_intent_provenance": user_intent_provenance,
             "current_turn_candidates": current_turn_candidates,
             "final_response_candidates": final_response_candidates,
             "tool_actions": tool_actions,
@@ -140,9 +141,22 @@ def interpret_trace(trace: Trace) -> ObservedAgentRun:
 
 
 def _extract_user_intent(trace: Trace) -> str | None:
+    return _extract_user_intent_with_provenance(trace)[0]
+
+
+def _extract_user_intent_with_provenance(
+    trace: Trace,
+) -> tuple[str | None, dict[str, Any]]:
     current_turn = _current_turn_candidates(trace)
     if current_turn:
-        return current_turn[0]
+        source = (
+            "stitched_correlated_trace"
+            if isinstance(trace.inputs, dict)
+            and trace.inputs.get("_loopforge_stitched_user_intent")
+            else "root_current_turn"
+        )
+        confidence = 0.75 if source == "stitched_correlated_trace" else 0.98
+        return current_turn[0], _intent_provenance(source, "user", confidence)
     all_candidates: list[Any] = [trace.inputs, trace.outputs]
     all_candidates.extend(span.input for span in trace.spans)
     all_candidates.extend(span.output for span in trace.spans)
@@ -152,14 +166,14 @@ def _extract_user_intent(trace: Trace) -> str | None:
             values.extend(_find_text_values(candidate, (key,)))
         selected = _select_user_intent(values)
         if selected:
-            return selected
+            return selected, _intent_provenance("explicit_original_user_field", "user", 0.96)
 
     root_explicit_texts: list[str] = []
     for candidate in (trace.inputs, trace.outputs):
         root_explicit_texts.extend(_find_text_values(candidate, EXPLICIT_USER_INTENT_KEYS))
     selected = _select_user_intent(root_explicit_texts)
     if selected:
-        return selected
+        return selected, _intent_provenance("root_explicit_user_field", "user", 0.95)
 
     candidates: list[Any] = [trace.inputs]
     candidates.extend(span.input for span in trace.spans)
@@ -168,21 +182,32 @@ def _extract_user_intent(trace: Trace) -> str | None:
         explicit_texts.extend(_find_text_values(candidate, EXPLICIT_USER_INTENT_KEYS))
     selected = _select_user_intent(explicit_texts)
     if selected:
-        return selected
+        return selected, _intent_provenance("span_explicit_user_field", "user", 0.82)
     role_texts: list[str] = []
     for candidate in candidates:
         role_texts.extend(_role_text_candidates(candidate, {"user", "human", "humanmessage"}))
     selected = _select_user_intent(role_texts)
     if selected:
-        return selected
-    for candidate in candidates:
-        value = _find_text(candidate, USER_INTENT_KEYS)
-        marked = _extract_marked_user_question(value) if value else None
-        if marked and not _looks_like_sql_only(marked):
-            return marked
-        if value and not _looks_like_sql_only(value) and not _looks_like_internal_prompt(value):
-            return value
-    return None
+        return selected, _intent_provenance("role_marked_human_message", "human", 0.72)
+
+    # Generic keys such as input, prompt, or message are only trustworthy at the
+    # provider root. Searching them inside child spans can concatenate structured
+    # system and human messages and mislabel the system prompt as user intent.
+    value = _find_text(trace.inputs, USER_INTENT_KEYS)
+    marked = _extract_marked_user_question(value) if value else None
+    if marked and not _looks_like_sql_only(marked):
+        return marked, _intent_provenance("root_generic_marked_request", "unknown", 0.65)
+    if value and not _looks_like_sql_only(value) and not _looks_like_internal_prompt(value):
+        return value, _intent_provenance("root_generic_input", "unknown", 0.55)
+    return None, _intent_provenance("unavailable", "unknown", 0.0)
+
+
+def _intent_provenance(source: str, role: str, confidence: float) -> dict[str, Any]:
+    return {
+        "source": source,
+        "role": role,
+        "confidence": confidence,
+    }
 
 
 def _extract_final_response(trace: Trace) -> str | None:
