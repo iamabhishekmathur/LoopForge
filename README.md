@@ -388,7 +388,7 @@ redaction:
 
 The calibrated model-backed judge first derives a request contract without seeing the final answer, then resolves the terminal trace outcome and evaluates it against trace-relevant codebase contracts. It reviews response quality and latent system behavior separately: an agent can answer correctly while a tool, model, guardrail, router, or fallback reveals a system defect. Lifecycle-aware requirements prevent expected clarification and human-input pauses from being reported as missing answers. Findings include a resolution state so a defect repaired within the trace remains useful evidence without becoming an active issue.
 
-Findings cross into the issue/eval/resolution loop only when they pass the promotion gate: model-backed provenance, confidence of at least `0.80`, judgeability of at least `0.60`, supported finding type, expected-versus-actual behavior, and both trace and codebase evidence. Qualified findings create a reviewable issue, a drafted probabilistic evaluator, a non-blocking calibration record, and a resolution plan. Local or weak findings remain hypotheses and cannot trigger patches or gates.
+Findings cross into the issue/eval/resolution loop only when they pass the promotion gate: model-backed provenance, confidence of at least `0.80`, judgeability of at least `0.60`, supported finding type, expected-versus-actual behavior, and both trace and codebase evidence. Qualified findings create a reviewable issue, a drafted probabilistic evaluator, a non-blocking autonomous-validation record, and a resolution plan. Local or weak findings remain hypotheses and cannot trigger patches or gates.
 
 ### Evaluate judge quality on your traces
 
@@ -403,13 +403,23 @@ loopforge judge evaluate \
   --allow-external
 ```
 
-Use `--trace-id TRACE_ID` repeatedly for a curated sample, or `--limit N` for a broader qualification run. The command reports false positives, missed issues, evidence quality, codebase grounding, actionability, resolved findings, and per-variant failures. Detailed records are written locally to `.loopforge/reports/latest-judge-evaluation.json` and a timestamped report; they are not added to Git by LoopForge.
+The evaluation run also executes eight bounded evaluators: request fulfillment, completeness, tool selection, tool execution, tool-response handling, guardrail adherence, evidence faithfulness, and recovery/termination. The default OpenAI-compatible provider follows the same typed decision contract as Jev. To use native Jev probability distributions instead:
+
+```bash
+export JEVMODEL_API_KEY=...
+loopforge judge evaluate \
+  --probabilistic-provider jev \
+  --probabilistic-model jev-latest \
+  --allow-external
+```
+
+Use `--trace-id TRACE_ID` repeatedly for a curated sample, or `--limit N` for a broader qualification run. The command reports false positives, missed issues, evidence quality, codebase grounding, actionability, resolved findings, and per-variant failures. It writes both JSON and a readable HTML investigation report to `.loopforge/reports/`; they are not added to Git by LoopForge.
 
 For hosted LangSmith data, provider roots are not assumed to be independent user turns. LoopForge selects canonical user-facing cases, attaches correlated tool-only roots as evidence, and excludes unmatched internal roots from behavior judging. The command prints all four counts so a team can distinguish provider volume from actual evaluated cases.
 
 `--allow-external` is deliberately required. LoopForge recursively redacts secrets and common identifiers before sending compact trace and codebase evidence to the configured endpoint, but sanitized customer evidence still leaves the machine. Review `loopforge redact preview` and your provider's data policy first.
 
-The stronger review model is an independent probabilistic adjudicator, not ground truth. Use the report to find systematic judge weaknesses and compare variants, then review disputed examples with domain experts before making any evaluator or acceptance gate blocking.
+The stronger review model is an independent probabilistic adjudicator, not ground truth. LoopForge does not require human-labeled examples. It validates evaluator support autonomously using independent judge agreement, evidence coverage, decision stability, explicit uncertainty, synthetic challenges, and replay. Human feedback can be incorporated when available, but it is optional evidence rather than an onboarding dependency.
 
 ### Draft a code-grounded improvement plan
 

@@ -378,7 +378,7 @@ redaction:
 
 The model-backed hypothesis judge replaces weak local lexical findings, while LoopForge preserves genuine structural findings such as missing trace coverage and runtime failures. Expected framework control-flow events, including LangGraph interaction interrupts, remain available as evidence but are not classified as failures. LoopForge also preserves the initiating user request separately from later clarification forms.
 
-A finding is promoted into the issue/eval/resolution loop only when it is model-backed, has confidence of at least `0.80`, has judgeability of at least `0.60`, includes expected and actual behavior, and cites both trace and codebase evidence. The drafted probabilistic evaluator remains non-blocking with `needs_model_calibration` status until labeled positive, negative, and abstention examples validate it. Weak and local findings remain hypotheses only.
+A finding is promoted into the issue/eval/resolution loop only when it is model-backed, has confidence of at least `0.80`, has judgeability of at least `0.60`, includes expected and actual behavior, and cites both trace and codebase evidence. The drafted probabilistic evaluator remains non-blocking with `needs_autonomous_validation` status until it passes synthetic challenge, independent agreement, evidence coverage, stability, and replay checks. Human labels are optional. Weak and local findings remain hypotheses only.
 
 ### Qualify the judge on stored traces
 
@@ -397,7 +397,7 @@ Add `--trace-id TRACE_ID` more than once for a curated set, or use `--limit N`. 
 
 LangSmith root runs may include standalone tool executions. LoopForge evaluates canonical user-facing cases only, attaching correlated tool roots as child evidence instead of treating them as independent user interactions. Evaluation output includes provider, canonical, attached-auxiliary, and excluded-root counts.
 
-The report separates active findings from defects already resolved in the same trace. It also measures false positives, misses, evidence quality, codebase grounding, actionability, and variant failures. These metrics come from a stronger independent model review and are probabilistic, not labeled ground truth. Human review of disputed and high-impact examples remains required before a judge can block a release or trigger a patch.
+The report separates active findings from defects already resolved in the same trace. It also records eight explicit evaluator verdicts, their full label distributions and entropy, independent judge agreement, evidence coverage, decision stability, challenge checks, and whether escalation was required. These signals are probabilistic support, not labeled ground truth. LoopForge does not require human labels; disputed cases automatically escalate to stronger model adjudication or an insufficient-evidence result.
 
 `--allow-external` is mandatory because the command sends recursively sanitized trace and codebase evidence to the configured endpoint. Run `loopforge redact preview` and confirm the model provider's data handling policy before using it with production traces.
 

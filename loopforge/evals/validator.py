@@ -21,28 +21,55 @@ def validate_evaluator(
     negatives = [trace for trace in traces if trace.trace_id not in positive_ids]
 
     if evaluator.evaluator_type == "probabilistic_model_judge":
+        autonomous = dict(evaluator.metadata.get("autonomous_validation") or {})
+        challenge_pass_rate = _number(autonomous.get("challenge_pass_rate"))
+        judge_agreement = _number(autonomous.get("judge_agreement_rate"))
+        evidence_coverage = _number(autonomous.get("evidence_coverage"))
+        decision_stability = _number(autonomous.get("decision_stability"))
+        replay_passed = autonomous.get("replay_passed") is True
+        validated = (
+            challenge_pass_rate is not None
+            and challenge_pass_rate >= 0.8
+            and judge_agreement is not None
+            and judge_agreement >= 0.75
+            and evidence_coverage is not None
+            and evidence_coverage >= 0.8
+            and decision_stability is not None
+            and decision_stability >= 0.75
+            and replay_passed
+        )
         return EvaluatorValidationRecord(
             evaluator_id=evaluator.evaluator_id,
             failure_mode_id=evaluator.failure_mode_id,
             ontology_version=evaluator.ontology_version,
             evaluator_type=evaluator.evaluator_type,
             output_type=evaluator.output_type,
-            validation_status="needs_model_calibration",
-            blocking_gate_eligible=False,
+            validation_status=(
+                "autonomously_validated" if validated else "needs_autonomous_validation"
+            ),
+            blocking_gate_eligible=validated,
             positive_examples=[trace.trace_id for trace in positives],
             negative_examples=[trace.trace_id for trace in negatives],
-            minimum_sample_size_met=(
-                len(positives) >= MIN_POSITIVE_EXAMPLES
-                and len(negatives) >= MIN_NEGATIVE_EXAMPLES
-            ),
-            evidence_sources=["trace_evidence", "codebase_contracts", "model_hypothesis"],
+            minimum_sample_size_met=bool(autonomous),
+            evidence_sources=[
+                "trace_evidence",
+                "synthetic_counterexamples",
+                "replay_results",
+                "reviewer_outcomes",
+                "contract_spec",
+            ],
+            pass_k_reliability=decision_stability,
+            reset_replay_failure_rate=0.0 if replay_passed else None,
             metadata={
                 "positive_count": len(positives),
                 "negative_count": len(negatives),
-                "calibration_required": True,
+                "validation_mode": "autonomous",
+                "human_labels_required": False,
+                "autonomous_validation": autonomous,
                 "reason": (
-                    "A probabilistic evaluator must be calibrated on labeled positives, "
-                    "negatives, and abstentions before it can block a gate."
+                    "A probabilistic evaluator must pass independent-judge agreement, "
+                    "evidence-coverage, stability, synthetic challenge, and replay gates "
+                    "before it can block a release. Human labels are optional evidence."
                 ),
             },
         )
@@ -146,3 +173,10 @@ def _rate(numerator: int, denominator: int) -> float | None:
     if denominator == 0:
         return None
     return round(numerator / denominator, 4)
+
+
+def _number(value: object) -> float | None:
+    try:
+        return min(1.0, max(0.0, float(value)))
+    except (TypeError, ValueError):
+        return None

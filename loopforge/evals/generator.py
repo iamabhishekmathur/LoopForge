@@ -121,7 +121,8 @@ def _generate_probabilistic_eval(
         metadata={
             "ai_drafted": True,
             "source_finding_id": finding.get("finding_id"),
-            "requires_calibration": True,
+            "validation_mode": "autonomous",
+            "human_labels_required": False,
         },
     )
     return eval_example, evaluator

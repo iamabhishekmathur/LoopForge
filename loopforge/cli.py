@@ -233,6 +233,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=3,
         help="Evaluate traces concurrently with up to 8 workers (default: 3).",
     )
+    judge_evaluate.add_argument(
+        "--probabilistic-provider",
+        choices=("openai", "jev"),
+        default="openai",
+        help="Bounded probabilistic evaluator provider (default: openai proxy).",
+    )
+    judge_evaluate.add_argument(
+        "--probabilistic-model",
+        default=None,
+        help="Override the bounded evaluator model (Jev defaults to jev-latest).",
+    )
+    judge_evaluate.add_argument(
+        "--probabilistic-endpoint",
+        default=None,
+        help="Override the bounded evaluator endpoint.",
+    )
+    judge_evaluate.add_argument(
+        "--probabilistic-api-key-env",
+        default=None,
+        help="API-key environment variable for the bounded evaluator provider.",
+    )
 
     improve = subparsers.add_parser(
         "improve",
@@ -983,6 +1004,10 @@ def command_judge_evaluate(args: argparse.Namespace) -> int:
         trace_ids=args.trace_id,
         timeout_seconds=args.timeout_seconds,
         workers=args.workers,
+        probabilistic_provider=args.probabilistic_provider,
+        probabilistic_model=args.probabilistic_model,
+        probabilistic_endpoint=args.probabilistic_endpoint,
+        probabilistic_api_key_env=args.probabilistic_api_key_env,
     )
     print("Judge evaluation complete")
     print(f"  provider_traces: {result.input_trace_count}")
@@ -1006,6 +1031,7 @@ def command_judge_evaluate(args: argparse.Namespace) -> int:
         )
     print(f"  preferred: {result.metrics['preferred_variant']}")
     print(f"  report: {result.report_path}")
+    print(f"  html_report: {result.html_report_path}")
     return 0 if result.failed_count == 0 else 1
 
 

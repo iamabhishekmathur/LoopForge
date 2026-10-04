@@ -1171,7 +1171,7 @@ def test_recorded_hypothesis_judge_replaces_weak_local_intent_gap(tmp_path: Path
     assert len(validation_files) == 1
     assert len(resolution_files) == 1
     validation = json.loads(validation_files[0].read_text(encoding="utf-8"))
-    assert validation["validation_status"] == "needs_model_calibration"
+    assert validation["validation_status"] == "needs_autonomous_validation"
     assert validation["blocking_gate_eligible"] is False
 
 

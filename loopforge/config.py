@@ -153,10 +153,14 @@ gates:
 
 evaluator_validation:
   required_for_blocking_gates: true
-  min_true_positive_rate: 0.90
-  min_true_negative_rate: 0.90
+  mode: autonomous
+  human_labels_required: false
+  min_challenge_pass_rate: 0.80
+  min_judge_agreement_rate: 0.75
+  min_evidence_coverage: 0.80
+  min_decision_stability: 0.75
+  require_replay_pass: true
   freeze_judge_prompts: true
-  require_train_dev_test_split: true
 """
 
 

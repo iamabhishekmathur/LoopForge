@@ -340,7 +340,10 @@ def _evidence_needed(
         needed.append("Runtime evidence that the permission policy is enforced before the tool call.")
         needed.append("Trace evidence showing whether confirmed flows emit `human_approval` spans.")
     if _has_unvalidated_evaluator(validations):
-        needed.append("More labeled positive and negative examples for evaluator validation.")
+        needed.append(
+            "Autonomous evaluator validation: synthetic challenges, independent agreement, "
+            "evidence coverage, decision stability, and replay."
+        )
     if blockers:
         blocked_suites = ", ".join(str(item.get("suite")) for item in blockers)
         needed.append(f"Gate blocker resolution for: {blocked_suites}.")
@@ -376,8 +379,8 @@ def _has_unvalidated_evaluator(validations: list[dict[str, Any]]) -> bool:
 def _eval_action(needs_evidence: bool) -> str:
     if needs_evidence:
         return (
-            "Add or collect more positive and negative examples so the drafted evaluator "
-            "can become blocking-eligible."
+            "Run autonomous synthetic challenges, independent adjudication, and replay so the "
+            "drafted evaluator can become blocking-eligible."
         )
     return "Keep the validated evaluator attached to gates so recurrence is caught before release."
 

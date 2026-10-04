@@ -19,6 +19,14 @@ from loopforge.judging.model_judge import (
     build_hypothesis_judge_payload,
     build_judge_review_packet,
 )
+from loopforge.judging.probabilistic import (
+    JevProbabilisticEvaluator,
+    OpenAICompatibleProbabilisticEvaluator,
+    ProbabilisticEvaluator,
+    autonomous_decision_support,
+    build_evidence_ablation_challenge,
+)
+from loopforge.judging.report import write_judge_evaluation_html
 from loopforge.judging.planner import plan_judges
 from loopforge.models.harness import HarnessArtifact
 from loopforge.models.trace import Trace
@@ -43,6 +51,8 @@ Respect fulfillment_timing. A clarification or expected human-input pause does n
 Score evidence quality, codebase grounding, and actionability from 0 to 1. Mark a false positive when a decision flags acceptable behavior or relies on unsupported assumptions. A purported finding whose hypothesis says the agent behaved correctly or that no behavior gap exists is always a false positive, regardless of confidence. Treat the calibrated trace resolution's terminal structured action as later and more authoritative than an intermediate final_response extraction. Do not call an answer incomplete when the terminal Diagnosis or answer action contains the requested result. Mark a missed issue when your independent assessment identifies a likely or clear issue absent from the decision. Do not reward verbosity. Return JSON only.
 
 The audit labels describe different failure modes. If a decision has no findings, false_positive must be false; an incorrect abstention is a missed_issue, not a false_positive.
+
+Also return a concise human summary. core_issue must name the single most important gap in plain language, why_it_matters must state the concrete impact, and recommended_action must name the smallest useful harness change. Each field must be one short sentence. For acceptable behavior, core_issue must say that no material issue was found and recommended_action must say that no harness change is recommended.
 """
 
 
@@ -53,6 +63,9 @@ AUDIT_CONTRACT = {
         "rationale": "string",
         "expected_behavior": "string or null",
         "actual_behavior": "string or null",
+        "core_issue": "one short sentence",
+        "why_it_matters": "one short sentence",
+        "recommended_action": "one short sentence",
     },
     "legacy": {
         "false_positive": "boolean",
@@ -83,6 +96,7 @@ class JudgeEvaluationResult:
     completed_count: int
     failed_count: int
     report_path: Path
+    html_report_path: Path
     metrics: dict[str, Any]
 
 
@@ -97,6 +111,10 @@ def evaluate_judge_variants(
     trace_ids: list[str] | None = None,
     timeout_seconds: float = 90.0,
     workers: int = 1,
+    probabilistic_provider: str = "openai",
+    probabilistic_model: str | None = None,
+    probabilistic_endpoint: str | None = None,
+    probabilistic_api_key_env: str | None = None,
 ) -> JudgeEvaluationResult:
     """Compare legacy and calibrated judges against an independent model audit."""
 
@@ -132,6 +150,30 @@ def evaluate_judge_variants(
         critic_enabled=True,
         review_model=review_model,
     )
+    bounded_evaluator: ProbabilisticEvaluator
+    if probabilistic_provider == "jev":
+        bounded_evaluator = JevProbabilisticEvaluator(
+            endpoint=probabilistic_endpoint or "https://jevmodel.org/v1/systemone",
+            model=probabilistic_model or "jev-latest",
+            api_key_env=probabilistic_api_key_env or "JEVMODEL_API_KEY",
+            timeout_seconds=timeout_seconds,
+        )
+    elif probabilistic_provider == "openai":
+        classifier_model = probabilistic_model or model
+
+        def request_probabilistic_json(system_prompt: str, user_payload: str) -> dict[str, Any]:
+            return calibrated_judge._request_json(
+                system_prompt,
+                user_payload,
+                model=classifier_model,
+                operation="probabilistic_evaluator",
+            )
+
+        bounded_evaluator = OpenAICompatibleProbabilisticEvaluator(
+            request_json=request_probabilistic_json
+        )
+    else:
+        raise ValueError(f"unsupported probabilistic evaluator provider: {probabilistic_provider}")
 
     def evaluate_trace(trace: Trace) -> dict[str, Any]:
         observed = interpret_trace(trace)
@@ -163,6 +205,16 @@ def evaluate_judge_variants(
                 sanitized.value,
                 interpretation=calibrated.interpretation,
             )
+            probabilistic_evaluation = bounded_evaluator.evaluate(compact_packet)
+            evidence_ablation = bounded_evaluator.evaluate(
+                build_evidence_ablation_challenge(compact_packet)
+            )
+            challenge_results = [
+                {
+                    "challenge_id": "evidence_ablation_requires_uncertainty",
+                    "result": evidence_ablation,
+                }
+            ]
             audit_request = {
                 "task": "Independently assess this trace, then compare both judge variants.",
                 "output_contract": AUDIT_CONTRACT,
@@ -185,6 +237,18 @@ def evaluate_judge_variants(
                     "calibrated": calibrated.payload,
                 },
             )
+            draft_merged = (
+                (calibrated.draft_payload or {}).get("merged")
+                if isinstance(calibrated.draft_payload, dict)
+                else None
+            )
+            decision_support = autonomous_decision_support(
+                probabilistic_evaluation,
+                audit=audit,
+                final_decision=calibrated.payload,
+                draft_decision=draft_merged,
+                challenge_results=challenge_results,
+            )
             record.update(
                 {
                     "user_intent": observed.user_intent,
@@ -193,7 +257,23 @@ def evaluate_judge_variants(
                     "calibrated_decision": calibrated.payload,
                     "calibrated_trace_resolution": calibrated.interpretation,
                     "calibrated_investigator_draft": calibrated.draft_payload,
+                    "probabilistic_evaluation": probabilistic_evaluation,
+                    "decision_support": decision_support,
+                    "autonomous_challenges": challenge_results,
                     "audit": audit,
+                    "trace_timeline": [
+                        {
+                            "step_id": span.span_id,
+                            "name": span.name,
+                            "step_type": span.type,
+                            "started_at": span.started_at,
+                            "ended_at": span.ended_at,
+                            "input_preview": observed.steps[index].input_preview,
+                            "output_preview": observed.steps[index].output_preview,
+                            "error": observed.steps[index].error,
+                        }
+                        for index, span in enumerate(trace.spans)
+                    ],
                     "variant_errors": variant_errors,
                     "sanitization": {
                         "evidence_replacements": sanitized.replacement_count,
@@ -218,11 +298,16 @@ def evaluate_judge_variants(
     metrics = summarize_evaluation(records)
     generated_at = datetime.now(timezone.utc).isoformat()
     report = {
-        "schema_version": "1",
+        "schema_version": "2",
         "generated_at": generated_at,
         "evaluation_type": "hypothesis_judge_comparison",
         "model": model,
         "review_model": review_model or model,
+        "probabilistic_provider": bounded_evaluator.provider_id,
+        "probabilistic_model": (
+            probabilistic_model
+            or ("jev-latest" if probabilistic_provider == "jev" else model)
+        ),
         "workers": worker_count,
         "input_trace_count": len(payloads),
         "trace_count": len(traces),
@@ -237,7 +322,8 @@ def evaluate_judge_variants(
         "records": records,
         "limitations": [
             "The reference assessment is probabilistic model adjudication, not ground truth.",
-            "Human review is still required before judge changes become blocking gates.",
+            "Evaluator probabilities are decision uncertainty, not observed correctness rates.",
+            "LoopForge validates decisions autonomously through independent agreement, evidence coverage, stability, and challenge checks.",
         ],
     }
     report_dir = root / LOCAL_DIR / "reports"
@@ -247,6 +333,8 @@ def evaluate_judge_variants(
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     latest_path = report_dir / "latest-judge-evaluation.json"
     latest_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    html_report_path = write_judge_evaluation_html(report, report_path)
+    write_judge_evaluation_html(report, latest_path)
     return JudgeEvaluationResult(
         input_trace_count=len(payloads),
         trace_count=len(traces),
@@ -255,6 +343,7 @@ def evaluate_judge_variants(
         completed_count=sum(record["status"] == "complete" for record in records),
         failed_count=sum(record["status"] == "failed" for record in records),
         report_path=report_path,
+        html_report_path=html_report_path,
         metrics=metrics,
     )
 

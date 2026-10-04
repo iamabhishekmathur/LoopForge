@@ -38,16 +38,17 @@
         "pairwise_judge",
         "replay_scorer",
         "cost_latency_scorer",
-        "composite_scorer"
+        "composite_scorer",
+        "probabilistic_model_judge"
       ]
     },
     "output_type": {
       "type": "string",
-      "enum": ["binary", "score", "label", "composite"]
+      "enum": ["binary", "score", "label", "composite", "probability_with_abstention"]
     },
     "validation_status": {
       "type": "string",
-      "enum": ["provisional", "validated", "rejected", "needs_more_evidence"]
+      "enum": ["provisional", "validated", "autonomously_validated", "rejected", "needs_more_evidence", "needs_autonomous_validation"]
     },
     "ai_drafted": {
       "type": "boolean"
