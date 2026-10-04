@@ -125,7 +125,7 @@ def _case(record: dict[str, Any], classification: str) -> str:
 {_evaluator_table(evaluator_result)}
 <details><summary>Decision verification</summary><div class="detail-body">{_support(support)}</div></details>
 <details><summary>Trace timeline</summary><div class="detail-body">{_timeline(record)}</div></details>
-<details><summary>Judge details</summary><div class="detail-body"><pre class="raw">{escape(json.dumps({'audit':audit,'decision':decision}, indent=2, sort_keys=True))}</pre></div></details>
+<details><summary>Judge details</summary><div class="detail-body"><pre class="raw">{escape(json.dumps(_compact_judge_details(audit, decision), indent=2, sort_keys=True))}</pre></div></details>
 </article>"""
 
 
@@ -178,11 +178,11 @@ def _timeline(record: dict[str, Any]) -> str:
         duration = _duration(item.get("started_at"), item.get("ended_at"))
         previews = []
         if item.get("input_preview"):
-            previews.append("Input\n" + _text(item.get("input_preview")))
+            previews.append("Input\n" + _short(item.get("input_preview"), 500))
         if item.get("output_preview"):
-            previews.append("Output\n" + _text(item.get("output_preview")))
+            previews.append("Output\n" + _short(item.get("output_preview"), 500))
         if item.get("error"):
-            previews.append("Error\n" + _text(item.get("error")))
+            previews.append("Error\n" + _short(item.get("error"), 500))
         detail = f'<pre>{escape(chr(10).join(previews))}</pre>' if previews else ""
         steps.append(
             f'<div class="{" ".join(classes)}"><div class="step-title">{index + 1}. {escape(_text(item.get("name")))}</div>'
@@ -209,6 +209,43 @@ def _evaluator_recommendation(result: dict[str, Any]) -> str | None:
         if item.get("label") == "issue" and item.get("recommendation"):
             return _text(item.get("recommendation"))
     return None
+
+
+def _compact_judge_details(
+    audit: dict[str, Any], decision: dict[str, Any]
+) -> dict[str, Any]:
+    reference = dict(audit.get("reference_assessment") or {})
+    findings = []
+    for finding in decision.get("findings") or []:
+        if not isinstance(finding, dict):
+            continue
+        findings.append(
+            {
+                key: finding.get(key)
+                for key in (
+                    "finding_type",
+                    "finding_scope",
+                    "resolution_state",
+                    "title",
+                    "severity",
+                    "confidence",
+                    "expected_behavior",
+                    "actual_behavior",
+                    "recommended_next_action",
+                    "violated_requirement_ids",
+                    "violated_contracts",
+                    "missing_evidence",
+                )
+                if finding.get(key) not in (None, [], "")
+            }
+        )
+    return {
+        "reference_assessment": reference,
+        "calibrated_assessment": audit.get("calibrated") or {},
+        "findings": findings,
+        "abstained": decision.get("abstain") is True,
+        "abstain_reason": decision.get("reason") if decision.get("abstain") is True else None,
+    }
 
 
 def _short(value: Any, limit: int) -> str:

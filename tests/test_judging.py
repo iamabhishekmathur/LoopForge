@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 from loopforge.judging.behavior_map import build_behavior_map
 from loopforge.judging.context import select_relevant_contracts, select_trajectory_steps
@@ -18,6 +19,7 @@ from loopforge.judging.model_judge import (
     _enforce_finding_scope,
     _enforce_answer_requirement_references,
     _loads_model_json,
+    _is_retryable_request_error,
     _normalize_model_json_value,
     build_hypothesis_judge_payload,
     build_judge_review_packet,
@@ -1543,6 +1545,14 @@ def test_model_request_retries_malformed_json(monkeypatch) -> None:
         result = judge._request_json("system", "{}")
 
     assert result == {"abstain": True, "reason": "valid retry"}
+
+
+def test_model_request_retries_only_transient_http_errors() -> None:
+    retryable = HTTPError("https://example.invalid", 429, "rate limited", {}, None)
+    permanent = HTTPError("https://example.invalid", 401, "unauthorized", {}, None)
+
+    assert _is_retryable_request_error(retryable) is True
+    assert _is_retryable_request_error(permanent) is False
 
 
 def test_optional_specialist_failure_preserves_response_judgment() -> None:

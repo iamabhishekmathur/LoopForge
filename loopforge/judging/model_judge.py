@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import time
 from typing import Any, Protocol
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from loopforge.judging.context import (
@@ -482,8 +483,10 @@ class OpenAICompatibleHypothesisJudge:
                 return _extract_chat_json(response_payload)
             except Exception as exc:
                 last_error = exc
-                if attempt < 2:
+                if attempt < 2 and _is_retryable_request_error(exc):
                     time.sleep(1.5 * (attempt + 1))
+                    continue
+                break
         raise ValueError(f"{operation} request failed: {last_error}") from last_error
 
     def _user_payload(
@@ -964,6 +967,12 @@ def _extract_chat_json(response_payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(response_payload.get("findings"), list) or response_payload.get("abstain") is True:
         return response_payload
     raise ValueError("hypothesis judge response did not contain JSON content")
+
+
+def _is_retryable_request_error(exc: Exception) -> bool:
+    if isinstance(exc, HTTPError):
+        return exc.code in {408, 409, 429, 500, 502, 503, 504}
+    return isinstance(exc, (TimeoutError, URLError, json.JSONDecodeError))
 
 
 def _loads_model_json(content: str) -> Any:
