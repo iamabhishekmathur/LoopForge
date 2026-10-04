@@ -95,6 +95,11 @@ def test_judge_html_prioritizes_query_response_issue_recommendation_and_timeline
     assert 'id="caseSearch"' in html
     assert 'id="scopeText"' in html
     assert 'id="clearFilters"' in html
+    assert 'id="reviewOnly"' in html
+    assert "Verdict" in html
+    assert "Review status" in html
+    assert "All verdicts" in html
+    assert 'data-filter="review"' not in html
     assert 'data-filter-label="Clear issues"' in html
     assert 'aria-pressed="true"' in html
     assert "Filtered:" in html
