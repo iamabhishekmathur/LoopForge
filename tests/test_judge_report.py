@@ -85,3 +85,30 @@ def test_judge_html_prioritizes_query_response_issue_recommendation_and_timeline
     assert 'class="step issue"' in html
     assert "trace-&lt;unsafe&gt;" in html
     assert "trace-<unsafe>" not in html
+
+
+def test_judge_html_marks_inferred_intent_when_no_current_turn_message_exists() -> None:
+    report = {
+        "records": [
+            {
+                "status": "complete",
+                "trace_id": "trace-inferred",
+                "user_intent": "Generate views for the app.",
+                "calibrated_trace_resolution": {
+                    "current_turn_request": None,
+                    "resolved_terminal_outcome": "Views generated.",
+                },
+                "audit": {
+                    "reference_assessment": {
+                        "classification": "acceptable_behavior",
+                        "core_issue": "No material issue was found.",
+                    }
+                },
+            }
+        ]
+    }
+
+    html = judge_evaluation_html(report)
+
+    assert "Inferred intent" in html
+    assert "request inferred" in html

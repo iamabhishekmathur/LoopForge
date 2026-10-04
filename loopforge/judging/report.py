@@ -95,7 +95,9 @@ def _case(record: dict[str, Any], classification: str) -> str:
     finding = _primary_finding(decision)
     evaluator_result = record.get("probabilistic_evaluation") or {}
     support = record.get("decision_support") or {}
+    explicit_query = bool(resolved.get("current_turn_request"))
     query = resolved.get("current_turn_request") or record.get("user_intent") or "Not resolved"
+    query_label = "User query" if explicit_query else "Inferred intent"
     response = resolved.get("resolved_terminal_outcome") or record.get("final_response") or "Not resolved"
     core_issue = (
         reference.get("core_issue")
@@ -118,9 +120,11 @@ def _case(record: dict[str, Any], classification: str) -> str:
     ]
     if support.get("requires_escalation"):
         badges.append('<span class="badge weak">escalated</span>')
+    if not explicit_query:
+        badges.append('<span class="badge weak">request inferred</span>')
     return f"""<article class="case {classification}">
 <header class="case-head"><div><h3>{escape(_short(core_issue, 120))}</h3><div class="case-meta"><code>{escape(trace_id)}</code> &middot; {record.get('span_count', 0)} spans</div></div><div class="badges">{''.join(badges)}</div></header>
-<div class="qa"><section><span class="label">User query</span><div class="content">{escape(_short(query, 1800))}</div></section><section><span class="label">Final agent response</span><div class="content">{escape(_short(response, 2400))}</div></section></div>
+<div class="qa"><section><span class="label">{query_label}</span><div class="content">{escape(_short(query, 1800))}</div></section><section><span class="label">Final agent response</span><div class="content">{escape(_short(response, 2400))}</div></section></div>
 <section class="finding"><div class="finding-grid"><div><span class="label">Core issue</span><div class="issue-text">{escape(_short(core_issue, 420))}</div><div class="why">{escape(_short(why, 520))}</div></div><div><span class="label">Recommended change</span><div class="recommendation">{escape(_short(recommendation, 520))}</div></div></div></section>
 {_evaluator_table(evaluator_result)}
 <details><summary>Decision verification</summary><div class="detail-body">{_support(support)}</div></details>
