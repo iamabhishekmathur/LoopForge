@@ -93,6 +93,11 @@ def test_judge_html_prioritizes_query_response_issue_recommendation_and_timeline
     assert "trace-<unsafe>" not in html
     assert 'class="workspace"' in html
     assert 'id="caseSearch"' in html
+    assert 'id="scopeText"' in html
+    assert 'id="clearFilters"' in html
+    assert 'data-filter-label="Clear issues"' in html
+    assert 'aria-pressed="true"' in html
+    assert "Filtered:" in html
     assert 'class="nav-case clear_issue active"' in html
     assert "Passing evaluators (1)" in html
     assert "Evaluator health" in html
