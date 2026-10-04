@@ -44,6 +44,12 @@ def test_judge_html_prioritizes_query_response_issue_recommendation_and_timeline
                             "confidence": 0.91,
                             "issue": "Requested regions were omitted.",
                             "evidence_ids": ["sql-step"],
+                        },
+                        {
+                            "name": "Policy compliance",
+                            "label": "pass",
+                            "confidence": 0.96,
+                            "rationale": "No policy violation was observed.",
                         }
                     ]
                 },
@@ -85,6 +91,13 @@ def test_judge_html_prioritizes_query_response_issue_recommendation_and_timeline
     assert 'class="step issue"' in html
     assert "trace-&lt;unsafe&gt;" in html
     assert "trace-<unsafe>" not in html
+    assert 'class="workspace"' in html
+    assert 'id="caseSearch"' in html
+    assert 'class="nav-case clear_issue active"' in html
+    assert "Passing evaluators (1)" in html
+    assert "Evaluator health" in html
+    assert 'data-evaluator-filter="request_fulfillment:issue"' in html
+    assert 'data-step="-1"' in html
 
 
 def test_judge_html_marks_inferred_intent_when_no_current_turn_message_exists() -> None:
@@ -112,3 +125,40 @@ def test_judge_html_marks_inferred_intent_when_no_current_turn_message_exists() 
 
     assert "Inferred intent" in html
     assert "request inferred" in html
+
+
+def test_judge_html_sorts_review_cases_before_acceptable_cases() -> None:
+    report = {
+        "records": [
+            {
+                "status": "complete",
+                "trace_id": "acceptable-first-in-input",
+                "user_intent": "Show revenue.",
+                "audit": {
+                    "reference_assessment": {
+                        "classification": "acceptable_behavior",
+                        "core_issue": "No material issue was found.",
+                    }
+                },
+                "decision_support": {"support": "strong"},
+            },
+            {
+                "status": "complete",
+                "trace_id": "clear-second-in-input",
+                "user_intent": "Compare every region.",
+                "audit": {
+                    "reference_assessment": {
+                        "classification": "clear_issue",
+                        "core_issue": "The response omitted a region.",
+                    }
+                },
+                "decision_support": {"support": "strong"},
+            },
+        ]
+    }
+
+    html = judge_evaluation_html(report)
+
+    assert html.index("Compare every region.") < html.index("Show revenue.")
+    assert 'data-review="true"' in html
+    assert "Needs review" in html

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime
+import hashlib
 from html import escape
 import json
 from pathlib import Path
@@ -25,13 +27,19 @@ def write_judge_evaluation_html(report: dict[str, Any], json_path: Path) -> Path
 
 
 def judge_evaluation_html(report: dict[str, Any]) -> str:
-    records = list(report.get("records") or [])
+    records = sorted(list(report.get("records") or []), key=_review_sort_key)
     counts = {key: 0 for key, _ in GROUPS}
     for record in records:
         counts[_classification(record)] = counts.get(_classification(record), 0) + 1
-    groups = "".join(
-        _group(key, label, [record for record in records if _classification(record) == key])
-        for key, label in GROUPS
+    review_count = sum(_needs_review(record) for record in records)
+    case_ids = [_case_id(record, index) for index, record in enumerate(records)]
+    navigator = "".join(
+        _navigator_item(record, case_ids[index], index == 0)
+        for index, record in enumerate(records)
+    )
+    cases = "".join(
+        _case(record, _classification(record), case_ids[index], index == 0)
+        for index, record in enumerate(records)
     )
     generated_at = _text(report.get("generated_at"))
     provider = _text(report.get("probabilistic_provider") or "not configured")
@@ -42,52 +50,110 @@ def judge_evaluation_html(report: dict[str, Any]) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LoopForge trace evaluation</title>
 <style>
-:root{{--ink:#17202a;--muted:#68717d;--line:#dfe3e8;--soft:#f6f7f8;--red:#b42318;--amber:#9a6700;--green:#18794e;--blue:#175cd3}}
-*{{box-sizing:border-box}} body{{margin:0;background:#fff;color:var(--ink);font:14px/1.48 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}}
-main{{max-width:1180px;margin:0 auto;padding:32px 24px 64px}} h1{{font-size:28px;margin:0 0 6px}} h2{{font-size:20px;margin:36px 0 12px}} h3{{font-size:17px;margin:0}} p{{margin:0}} code{{font:12px ui-monospace,SFMono-Regular,Menlo,monospace}}
-.sub{{color:var(--muted)}} .summary{{display:grid;grid-template-columns:repeat(5,minmax(110px,1fr));border:1px solid var(--line);margin:22px 0 12px}}
-.metric{{padding:14px 16px;border-right:1px solid var(--line)}} .metric:last-child{{border:0}} .metric b{{display:block;font-size:21px}} .metric span{{color:var(--muted);font-size:12px}}
-.tabs{{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}} button{{border:1px solid var(--line);background:#fff;padding:7px 11px;cursor:pointer;font-weight:600}} button.active{{background:var(--ink);color:#fff;border-color:var(--ink)}}
-.case{{border:1px solid var(--line);border-left:4px solid var(--blue);margin:12px 0;background:#fff}} .case.clear_issue{{border-left-color:var(--red)}} .case.likely_issue{{border-left-color:var(--amber)}} .case.acceptable_behavior{{border-left-color:var(--green)}} .case.insufficient_evidence,.case.failed{{border-left-color:#77808c}}
-.case-head{{display:flex;justify-content:space-between;gap:16px;padding:15px 18px;border-bottom:1px solid var(--line)}} .case-meta{{color:var(--muted);font-size:12px;margin-top:4px}} .badges{{display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap;justify-content:flex-end}}
+:root{{--ink:#17202a;--muted:#68717d;--line:#dfe3e8;--soft:#f6f7f8;--red:#b42318;--amber:#9a6700;--green:#18794e;--blue:#175cd3;--canvas:#f3f5f7}}
+*{{box-sizing:border-box}} html,body{{max-width:100%;overflow-x:hidden}} body{{margin:0;background:#fff;color:var(--ink);font:14px/1.48 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}}
+header.page-head{{max-width:1440px;margin:0 auto;padding:24px 28px 0}} h1{{font-size:26px;margin:0 0 4px}} h2{{font-size:20px;margin:0 0 14px}} h3{{font-size:17px;margin:0}} p{{margin:0}} code{{font:12px ui-monospace,SFMono-Regular,Menlo,monospace}}
+.sub{{color:var(--muted);overflow-wrap:anywhere}} .summary{{display:grid;grid-template-columns:repeat(6,minmax(105px,1fr));border:1px solid var(--line);margin:18px 0 14px}}
+.metric{{padding:12px 14px;border:0;border-right:1px solid var(--line);text-align:left;background:#fff;cursor:pointer}} .metric:last-child{{border:0}} .metric:hover{{background:var(--soft)}} .metric.active{{box-shadow:inset 0 -3px var(--blue)}} .metric b{{display:block;font-size:20px}} .metric span{{color:var(--muted);font-size:12px}}
+.view-tabs{{display:flex;border-bottom:1px solid var(--line);gap:20px}} .view-tab{{border:0;border-bottom:3px solid transparent;background:#fff;padding:9px 1px;cursor:pointer;font-weight:650;color:var(--muted)}} .view-tab.active{{color:var(--ink);border-color:var(--blue)}}
+button{{font:inherit}} .workspace{{height:calc(100vh - 238px);min-height:560px;display:grid;grid-template-columns:340px minmax(0,1fr);border-top:0;background:var(--canvas)}}
+.navigator{{border-right:1px solid var(--line);background:#fff;display:flex;flex-direction:column;min-height:0}} .navigator-tools{{padding:14px;border-bottom:1px solid var(--line)}} .search{{width:100%;height:38px;border:1px solid #bfc6cf;padding:0 11px;font:inherit}} .scope{{font-size:12px;color:var(--muted);margin-top:8px;min-height:18px}}
+.case-list{{overflow:auto;min-height:0}} .nav-case{{width:100%;display:block;border:0;border-bottom:1px solid var(--line);border-left:4px solid #8792a2;background:#fff;text-align:left;padding:12px 13px;cursor:pointer}} .nav-case:hover{{background:var(--soft)}} .nav-case.active{{background:#eef4ff;border-left-color:var(--blue)}} .nav-case.clear_issue{{border-left-color:var(--red)}} .nav-case.likely_issue{{border-left-color:var(--amber)}} .nav-case.acceptable_behavior{{border-left-color:var(--green)}}
+.nav-query{{font-weight:650;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}} .nav-issue{{font-size:12px;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}} .nav-meta{{display:flex;gap:7px;margin-top:7px;font-size:10px;text-transform:uppercase;font-weight:700}} .nav-meta .review{{color:var(--red)}}
+.investigation{{overflow:auto;background:#fff;min-width:0}} .case{{display:none;max-width:1080px;margin:0 auto;background:#fff;min-width:0}} .case.active{{display:block}} .case-head{{position:sticky;top:0;z-index:3;display:flex;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.97);min-width:0}} .case-meta{{color:var(--muted);font-size:12px;margin-top:4px;overflow-wrap:anywhere}} .case-actions{{display:flex;gap:8px;align-items:flex-start}} .icon-button{{width:34px;height:34px;flex:0 0 34px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:18px}} .icon-button:hover{{background:var(--soft)}} .badges{{display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap;justify-content:flex-end}}
 .badge{{font-size:11px;font-weight:700;padding:3px 7px;border:1px solid var(--line);text-transform:uppercase}} .badge.strong{{color:var(--green);border-color:#a9d8c2}} .badge.weak,.badge.insufficient{{color:var(--red);border-color:#efb4ae}} .badge.moderate{{color:var(--amber);border-color:#e7cc8b}}
-.qa{{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--line)}} .qa>section{{padding:16px 18px;min-width:0}} .qa>section+section{{border-left:1px solid var(--line)}} .label{{display:block;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;margin-bottom:7px}} .content{{white-space:pre-wrap;overflow-wrap:anywhere}}
-.finding{{padding:16px 18px;border-bottom:1px solid var(--line)}} .finding-grid{{display:grid;grid-template-columns:1fr 1fr;gap:28px}} .issue-text{{font-size:16px;font-weight:650}} .why{{color:var(--muted);margin-top:5px}} .recommendation{{font-weight:600}}
+.qa{{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--line)}} .qa>section{{padding:18px 22px;min-width:0}} .qa>section+section{{border-left:1px solid var(--line)}} .label{{display:block;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;margin-bottom:7px}} .content{{white-space:pre-wrap;overflow-wrap:anywhere}}
+.finding{{padding:20px 22px;border-bottom:1px solid var(--line)}} .finding-grid{{display:grid;grid-template-columns:1fr 1fr;gap:34px}} .issue-text{{font-size:18px;font-weight:680}} .why{{color:var(--muted);margin-top:6px}} .recommendation{{font-size:16px;font-weight:650}}
 .evals{{width:100%;border-collapse:collapse}} .evals th,.evals td{{text-align:left;padding:9px 12px;border-top:1px solid var(--line);vertical-align:top}} .evals th{{color:var(--muted);font-size:11px;text-transform:uppercase;background:var(--soft)}} .evals td:first-child{{font-weight:600}} .label-issue{{color:var(--red);font-weight:700}} .label-pass{{color:var(--green);font-weight:700}} .label-uncertain{{color:var(--amber);font-weight:700}}
 .meter{{width:90px;height:5px;background:#e8eaed;margin-top:5px}} .meter i{{display:block;height:100%;background:var(--blue)}} details{{border-top:1px solid var(--line)}} summary{{padding:12px 18px;cursor:pointer;font-weight:650}} .detail-body{{padding:4px 18px 18px}}
 .support{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px}} .support div{{background:var(--soft);padding:9px 10px}} .support b{{display:block}} .support span{{color:var(--muted);font-size:11px}}
 .timeline{{position:relative;margin:10px 0 0 10px;padding-left:22px;border-left:2px solid #ccd3db}} .step{{position:relative;padding:0 0 16px}} .step:before{{content:"";position:absolute;left:-29px;top:3px;width:12px;height:12px;border:2px solid #8792a2;background:#fff;border-radius:50%}} .step.issue:before{{border-color:var(--red);background:#fff0ee}} .step.error:before{{border-color:var(--red);background:var(--red)}} .step-title{{font-weight:650}} .step-meta{{color:var(--muted);font-size:11px}} .step pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--soft);padding:8px;margin:6px 0 0;max-height:180px;overflow:auto;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}}
-.empty{{padding:18px;color:var(--muted);border:1px dashed var(--line)}} .raw{{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--soft);padding:12px;max-height:400px;overflow:auto;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}}
-@media(max-width:760px){{main{{padding:20px 12px}}.summary{{grid-template-columns:repeat(2,1fr)}}.qa,.finding-grid{{grid-template-columns:1fr}}.qa>section+section{{border-left:0;border-top:1px solid var(--line)}}.support{{grid-template-columns:repeat(2,1fr)}}.evals th:nth-child(4),.evals td:nth-child(4){{display:none}}}}
+.empty{{padding:18px;color:var(--muted);border:1px dashed var(--line)}} .raw{{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--soft);padding:12px;max-height:400px;overflow:auto;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}} .empty-selection{{display:none;padding:40px;color:var(--muted);text-align:center}} .empty-selection.active{{display:block}}
+.health{{display:none;max-width:1180px;margin:0 auto;padding:24px 28px 60px}} .health.active{{display:block}} .health-table{{width:100%;border-collapse:collapse;border:1px solid var(--line)}} .health-table th,.health-table td{{padding:11px 12px;text-align:left;border-bottom:1px solid var(--line)}} .health-table th{{background:var(--soft);font-size:11px;text-transform:uppercase;color:var(--muted)}} .health-filter{{border:0;background:transparent;color:var(--blue);font-weight:700;cursor:pointer;padding:2px}}
+@media(max-width:820px){{header.page-head{{padding:18px 14px 0}}.summary{{grid-template-columns:repeat(3,minmax(0,1fr));width:100%}}.metric{{min-width:0}}.workspace{{width:100%;height:auto;min-height:0;grid-template-columns:minmax(0,1fr)}}.navigator{{width:100%;min-width:0;border-right:0;border-bottom:1px solid var(--line);max-height:42vh}}.investigation{{width:100%;overflow:visible}}.case-head{{position:static;display:block}}.case-actions{{margin-top:12px;flex-wrap:wrap}}.badges{{flex:1 1 100%;justify-content:flex-start}}.qa,.finding-grid{{grid-template-columns:minmax(0,1fr)}}.qa>section+section{{border-left:0;border-top:1px solid var(--line)}}.support{{grid-template-columns:repeat(2,minmax(0,1fr))}}.evals th:nth-child(4),.evals td:nth-child(4){{display:none}}.health{{padding:18px 14px}}}}
 </style>
 </head>
-<body><main>
+<body><header class="page-head">
 <h1>Trace evaluation</h1>
 <p class="sub">{escape(str(len(records)))} traces &middot; probabilistic provider: {escape(provider)} &middot; generated {escape(generated_at)}</p>
-<div class="summary">{''.join(_summary_metric(counts[key], label) for key, label in GROUPS)}</div>
-<div class="tabs"><button class="active" data-filter="all">All</button>{''.join(f'<button data-filter="{key}">{escape(label)} ({counts[key]})</button>' for key,label in GROUPS)}</div>
-{groups}
+<div class="summary">{_summary_metric(len(records), "All traces", "all", active=True)}{_summary_metric(review_count, "Needs review", "review")}{''.join(_summary_metric(counts[key], label, key) for key,label in GROUPS if key != "failed" or counts[key])}</div>
+<div class="view-tabs"><button class="view-tab active" data-view="cases">Cases</button><button class="view-tab" data-view="health">Evaluator health</button></div>
+</header>
+<main id="casesView" class="workspace">
+<aside class="navigator"><div class="navigator-tools"><input id="caseSearch" class="search" type="search" placeholder="Search query, issue, or trace" aria-label="Search cases"><div id="activeScope" class="scope">Showing all {len(records)} traces</div></div><nav id="caseList" class="case-list" aria-label="Trace review queue">{navigator}</nav></aside>
+<section id="investigation" class="investigation"><div id="emptySelection" class="empty-selection">No cases match this filter.</div>{cases}</section>
 </main>
+<section id="healthView" class="health"><h2>Evaluator health</h2><p class="sub" style="margin-bottom:16px">Select an issue or uncertain count to inspect those cases.</p>{_evaluator_health(records)}</section>
 <script>
-document.querySelectorAll('[data-filter]').forEach(button=>button.addEventListener('click',()=>{{
- document.querySelectorAll('[data-filter]').forEach(x=>x.classList.remove('active')); button.classList.add('active');
- const filter=button.dataset.filter; document.querySelectorAll('.report-group').forEach(group=>{{group.style.display=filter==='all'||group.dataset.group===filter?'block':'none'}});
-}}));
+const state={{filter:'all',search:'',evaluator:'',active:null}};
+const navItems=[...document.querySelectorAll('.nav-case')]; const cases=[...document.querySelectorAll('.case')];
+function visibleItems(){{return navItems.filter(item=>item.style.display!=='none')}}
+function selectCase(id,pushHash=true){{const target=navItems.find(item=>item.dataset.caseId===id&&item.style.display!=='none'); if(!target)return; state.active=id; navItems.forEach(x=>x.classList.toggle('active',x===target)); cases.forEach(x=>x.classList.toggle('active',x.id===id)); if(pushHash)history.replaceState(null,'','#'+id); document.getElementById('investigation').scrollTop=0}}
+function applyFilters(){{let shown=0; navItems.forEach(item=>{{const category=state.filter==='all'||(state.filter==='review'&&item.dataset.review==='true')||item.dataset.classification===state.filter; const search=!state.search||item.dataset.search.includes(state.search); const evaluator=!state.evaluator||item.dataset.evaluators.split(' ').includes(state.evaluator); const visible=category&&search&&evaluator; item.style.display=visible?'block':'none'; if(visible)shown++}}); document.getElementById('activeScope').textContent=state.evaluator?`Showing ${{shown}} traces for ${{state.evaluator.replace(':',' / ')}}`:`Showing ${{shown}} traces`; document.getElementById('emptySelection').classList.toggle('active',shown===0); const visible=visibleItems(); if(visible.length&&!visible.some(x=>x.dataset.caseId===state.active))selectCase(visible[0].dataset.caseId,false); if(!visible.length)cases.forEach(x=>x.classList.remove('active'))}}
+navItems.forEach(item=>item.addEventListener('click',()=>selectCase(item.dataset.caseId)));
+document.getElementById('caseSearch').addEventListener('input',event=>{{state.search=event.target.value.trim().toLowerCase();applyFilters()}});
+document.querySelectorAll('[data-filter]').forEach(button=>button.addEventListener('click',()=>{{state.filter=button.dataset.filter;state.evaluator='';document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('active',x===button));showView('cases');applyFilters()}}));
+document.querySelectorAll('[data-step]').forEach(button=>button.addEventListener('click',()=>{{const visible=visibleItems();const index=visible.findIndex(x=>x.dataset.caseId===state.active);const target=visible[index+Number(button.dataset.step)];if(target)selectCase(target.dataset.caseId)}}));
+function showView(view){{document.getElementById('casesView').style.display=view==='cases'?'grid':'none';document.getElementById('healthView').classList.toggle('active',view==='health');document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x.dataset.view===view))}}
+document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>showView(button.dataset.view)));
+document.querySelectorAll('[data-evaluator-filter]').forEach(button=>button.addEventListener('click',()=>{{state.evaluator=button.dataset.evaluatorFilter;state.filter='all';document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('active',x.dataset.filter==='all'));showView('cases');applyFilters()}}));
+const initial=location.hash.slice(1); selectCase(navItems.some(x=>x.dataset.caseId===initial)?initial:(navItems[0]?.dataset.caseId),false); applyFilters();
 </script></body></html>"""
 
 
-def _summary_metric(value: int, label: str) -> str:
-    return f'<div class="metric"><b>{value}</b><span>{escape(label)}</span></div>'
+def _summary_metric(
+    value: int, label: str, filter_name: str, *, active: bool = False
+) -> str:
+    active_class = " active" if active else ""
+    return (
+        f'<button class="metric{active_class}" data-filter="{escape(filter_name)}">'
+        f'<b>{value}</b><span>{escape(label)}</span></button>'
+    )
 
 
-def _group(key: str, label: str, records: list[dict[str, Any]]) -> str:
-    cards = "".join(_case(record, key) for record in records)
-    if not cards:
-        cards = '<div class="empty">No traces in this group.</div>'
-    return f'<section class="report-group" data-group="{key}"><h2>{escape(label)} <span class="sub">{len(records)}</span></h2>{cards}</section>'
+def _navigator_item(record: dict[str, Any], case_id: str, active: bool) -> str:
+    classification = _classification(record)
+    resolved = record.get("calibrated_trace_resolution") or {}
+    reference = (record.get("audit") or {}).get("reference_assessment") or {}
+    decision = record.get("calibrated_decision") or {}
+    finding = _primary_finding(decision)
+    query = (
+        resolved.get("current_turn_request")
+        or record.get("user_intent")
+        or "Request not resolved"
+    )
+    issue = (
+        reference.get("core_issue")
+        or finding.get("title")
+        or "No material issue identified."
+    )
+    evaluators = " ".join(
+        _evaluator_token(item)
+        for item in (record.get("probabilistic_evaluation") or {}).get("evaluators")
+        or []
+    )
+    search = " ".join(
+        (_text(query), _text(issue), _text(record.get("trace_id")))
+    ).lower()
+    active_class = " active" if active else ""
+    review = _needs_review(record)
+    review_label = '<span class="review">Needs review</span>' if review else ""
+    support = _text((record.get("decision_support") or {}).get("support") or "unknown")
+    return (
+        f'<button type="button" class="nav-case {classification}{active_class}" '
+        f'data-case-id="{escape(case_id)}" data-classification="{escape(classification)}" '
+        f'data-review="{str(review).lower()}" data-search="{escape(search)}" '
+        f'data-evaluators="{escape(evaluators)}">'
+        f'<span class="nav-query">{escape(_short(query, 150))}</span>'
+        f'<span class="nav-issue">{escape(_short(issue, 150))}</span>'
+        f'<span class="nav-meta">{review_label}<span>{escape(classification.replace("_", " "))}</span>'
+        f'<span>{escape(support)} support</span></span></button>'
+    )
 
 
-def _case(record: dict[str, Any], classification: str) -> str:
+def _case(
+    record: dict[str, Any], classification: str, case_id: str, active: bool
+) -> str:
     resolved = record.get("calibrated_trace_resolution") or {}
     audit = record.get("audit") or {}
     reference = audit.get("reference_assessment") or {}
@@ -122,10 +188,11 @@ def _case(record: dict[str, Any], classification: str) -> str:
         badges.append('<span class="badge weak">escalated</span>')
     if not explicit_query:
         badges.append('<span class="badge weak">request inferred</span>')
-    return f"""<article class="case {classification}">
-<header class="case-head"><div><h3>{escape(_short(core_issue, 120))}</h3><div class="case-meta"><code>{escape(trace_id)}</code> &middot; {record.get('span_count', 0)} spans</div></div><div class="badges">{''.join(badges)}</div></header>
-<div class="qa"><section><span class="label">{query_label}</span><div class="content">{escape(_short(query, 1800))}</div></section><section><span class="label">Final agent response</span><div class="content">{escape(_short(response, 2400))}</div></section></div>
+    active_class = " active" if active else ""
+    return f"""<article id="{escape(case_id)}" class="case {classification}{active_class}">
+<header class="case-head"><div><h3>{escape(_short(core_issue, 120))}</h3><div class="case-meta"><code>{escape(trace_id)}</code> &middot; {record.get('span_count', 0)} spans</div></div><div class="case-actions"><div class="badges">{''.join(badges)}</div><button type="button" class="icon-button" data-step="-1" title="Previous visible case" aria-label="Previous visible case">&#8592;</button><button type="button" class="icon-button" data-step="1" title="Next visible case" aria-label="Next visible case">&#8594;</button></div></header>
 <section class="finding"><div class="finding-grid"><div><span class="label">Core issue</span><div class="issue-text">{escape(_short(core_issue, 420))}</div><div class="why">{escape(_short(why, 520))}</div></div><div><span class="label">Recommended change</span><div class="recommendation">{escape(_short(recommendation, 520))}</div></div></div></section>
+<div class="qa"><section><span class="label">{query_label}</span><div class="content">{escape(_short(query, 1800))}</div></section><section><span class="label">Final agent response</span><div class="content">{escape(_short(response, 2400))}</div></section></div>
 {_evaluator_table(evaluator_result)}
 <details><summary>Decision verification</summary><div class="detail-body">{_support(support)}</div></details>
 <details><summary>Trace timeline</summary><div class="detail-body">{_timeline(record)}</div></details>
@@ -134,8 +201,42 @@ def _case(record: dict[str, Any], classification: str) -> str:
 
 
 def _evaluator_table(result: dict[str, Any]) -> str:
+    evaluators = list(result.get("evaluators") or [])
+    issues = [item for item in evaluators if item.get("label") == "issue"]
+    uncertain = [item for item in evaluators if item.get("label") == "uncertain"]
+    passing = [item for item in evaluators if item not in issues and item not in uncertain]
+    if not evaluators:
+        return '<div class="finding"><span class="label">Evaluators</span><div class="sub">No probabilistic evaluator result.</div></div>'
+    if issues:
+        primary = (
+            '<table class="evals"><thead><tr><th>Evaluator</th><th>Verdict</th>'
+            '<th>Model confidence</th><th>Basis</th></tr></thead><tbody>'
+            + _evaluator_rows(issues)
+            + "</tbody></table>"
+        )
+    else:
+        primary = '<div class="finding"><span class="label">Evaluators</span><div class="sub">No evaluator made a supported issue finding.</div></div>'
+    sections = [primary]
+    if uncertain:
+        sections.append(_evaluator_disclosure("Uncertain evaluators", uncertain))
+    if passing:
+        sections.append(_evaluator_disclosure("Passing evaluators", passing))
+    return "".join(sections)
+
+
+def _evaluator_disclosure(label: str, evaluators: list[dict[str, Any]]) -> str:
+    return (
+        f'<details><summary>{escape(label)} ({len(evaluators)})</summary><div class="detail-body">'
+        '<table class="evals"><thead><tr><th>Evaluator</th><th>Verdict</th>'
+        '<th>Model confidence</th><th>Basis</th></tr></thead><tbody>'
+        + _evaluator_rows(evaluators)
+        + "</tbody></table></div></details>"
+    )
+
+
+def _evaluator_rows(evaluators: list[dict[str, Any]]) -> str:
     rows = []
-    for item in result.get("evaluators") or []:
+    for item in evaluators:
         label = _text(item.get("label") or "uncertain")
         confidence = float(item.get("confidence") or 0)
         rationale = item.get("issue") or item.get("rationale") or ""
@@ -143,9 +244,51 @@ def _evaluator_table(result: dict[str, Any]) -> str:
             f'<tr><td>{escape(_text(item.get("name")))}</td><td class="label-{escape(label)}">{escape(label.replace("_", " "))}</td>'
             f'<td>{confidence:.0%}<div class="meter"><i style="width:{confidence:.0%}"></i></div></td><td>{escape(_short(rationale, 260))}</td></tr>'
         )
-    if not rows:
-        return '<div class="finding"><span class="label">Evaluators</span><div class="sub">No probabilistic evaluator result.</div></div>'
-    return '<table class="evals"><thead><tr><th>Evaluator</th><th>Verdict</th><th>Model confidence</th><th>Basis</th></tr></thead><tbody>' + "".join(rows) + "</tbody></table>"
+    return "".join(rows)
+
+
+def _evaluator_health(records: list[dict[str, Any]]) -> str:
+    health: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "name": "",
+            "issue": 0,
+            "uncertain": 0,
+            "pass": 0,
+            "other": 0,
+            "confidence": [],
+        }
+    )
+    for record in records:
+        for item in (record.get("probabilistic_evaluation") or {}).get("evaluators") or []:
+            evaluator_id = _evaluator_id(item)
+            bucket = health[evaluator_id]
+            bucket["name"] = _text(item.get("name") or evaluator_id)
+            label = _text(item.get("label") or "uncertain")
+            bucket[label if label in {"issue", "uncertain", "pass"} else "other"] += 1
+            try:
+                bucket["confidence"].append(float(item.get("confidence") or 0))
+            except (TypeError, ValueError):
+                pass
+    if not health:
+        return '<div class="empty">No evaluator results were captured.</div>'
+    rows = []
+    for evaluator_id, bucket in sorted(health.items(), key=lambda item: (-item[1]["issue"], item[1]["name"])):
+        confidences = bucket["confidence"]
+        average = sum(confidences) / len(confidences) if confidences else 0
+        issue_filter = escape(f"{evaluator_id}:issue")
+        uncertain_filter = escape(f"{evaluator_id}:uncertain")
+        rows.append(
+            f'<tr><td>{escape(bucket["name"])}</td>'
+            f'<td><button type="button" class="health-filter" data-evaluator-filter="{issue_filter}">{bucket["issue"]}</button></td>'
+            f'<td><button type="button" class="health-filter" data-evaluator-filter="{uncertain_filter}">{bucket["uncertain"]}</button></td>'
+            f'<td>{bucket["pass"]}</td><td>{average:.0%}</td></tr>'
+        )
+    return (
+        '<table class="health-table"><thead><tr><th>Evaluator</th><th>Issues</th>'
+        '<th>Uncertain</th><th>Pass</th><th>Average confidence</th></tr></thead><tbody>'
+        + "".join(rows)
+        + "</tbody></table>"
+    )
 
 
 def _support(support: dict[str, Any]) -> str:
@@ -250,6 +393,50 @@ def _compact_judge_details(
         "abstained": decision.get("abstain") is True,
         "abstain_reason": decision.get("reason") if decision.get("abstain") is True else None,
     }
+
+
+def _review_sort_key(record: dict[str, Any]) -> tuple[int, int, int, str]:
+    classification_order = {
+        "clear_issue": 0,
+        "likely_issue": 1,
+        "insufficient_evidence": 2,
+        "failed": 3,
+        "acceptable_behavior": 4,
+    }
+    support_order = {"weak": 0, "insufficient": 1, "moderate": 2, "strong": 3}
+    classification = _classification(record)
+    support = _text((record.get("decision_support") or {}).get("support"))
+    return (
+        0 if _needs_review(record) else 1,
+        classification_order.get(classification, 5),
+        support_order.get(support, 4),
+        _text(record.get("trace_id")),
+    )
+
+
+def _needs_review(record: dict[str, Any]) -> bool:
+    if _classification(record) in {"clear_issue", "likely_issue", "insufficient_evidence", "failed"}:
+        return True
+    support = record.get("decision_support") or {}
+    if support.get("requires_escalation") or support.get("support") in {"weak", "insufficient"}:
+        return True
+    return any(not check.get("passed") for check in support.get("checks") or [])
+
+
+def _case_id(record: dict[str, Any], index: int) -> str:
+    identity = _text(record.get("trace_id")) or f"record-{index}"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+    return f"case-{digest}"
+
+
+def _evaluator_id(item: dict[str, Any]) -> str:
+    value = _text(item.get("evaluator_id") or item.get("id") or item.get("name") or "evaluator")
+    normalized = "".join(character.lower() if character.isalnum() else "_" for character in value)
+    return "_".join(part for part in normalized.split("_") if part) or "evaluator"
+
+
+def _evaluator_token(item: dict[str, Any]) -> str:
+    return f'{_evaluator_id(item)}:{_text(item.get("label") or "uncertain")}'
 
 
 def _short(value: Any, limit: int) -> str:
